@@ -1,0 +1,9 @@
+from __future__ import annotations
+from typing import Protocol
+from app.models.signal import SignalRecording
+
+class SignalReader(Protocol):
+    @property
+    def sample_count(self) -> int: ...
+    def read(self) -> SignalRecording: ...
+    def read_chunk(self, start: int, count: int): ...
