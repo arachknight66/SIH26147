@@ -1,0 +1,5 @@
+{
+  "ground_truth_modulation": "QPSK",
+  "fec": "CONV_K7_R12_NASA",
+  "expected_status": "INDEPENDENTLY_VERIFIED"
+}

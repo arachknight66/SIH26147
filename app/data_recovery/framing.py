@@ -105,7 +105,7 @@ def detect_frame_boundaries(
 
 def slice_frames(
     bits: np.ndarray,
-    boundaries: list[FrameBoundary],
+    boundaries: Sequence[FrameBoundary],
     header_len_bits: int = 32,
     crc_len_bits: int = 16,
 ) -> list[FrameCandidate]:
@@ -142,23 +142,40 @@ def slice_frames(
             crc_bits = frame_raw[-crc_len_bits:]
             payload = frame_raw[header_len_bits:-crc_len_bits]
 
-        # Extract sequence number and length field candidates if header >= 16 bits
+        # Check sync preamble offset to inspect actual header fields
         seq_num: int | None = None
         len_val: int | None = None
+        header_offset = 0
+        if f_len >= 32:
+            p32 = bytes(np.packbits(frame_raw[:32])).hex().lower()
+            if p32 in ("1acffc1d", "faf055aa", "55aa55aa"):
+                header_offset = 32
+        if header_offset == 0 and f_len >= 16:
+            p16 = bytes(np.packbits(frame_raw[:16])).hex().lower()
+            if p16 in ("2dd4", "faf0", "aa55", "55aa", "1f35", "0712"):
+                header_offset = 16
 
-        if len(header) >= 16:
-            # Check first 16 bits as length candidate
-            h_bytes = np.packbits(header)
-            if len(h_bytes) >= 2:
-                len_candidate = int(h_bytes[0]) * 256 + int(h_bytes[1])
-                # If length candidate plausibly matches payload length in bytes
-                if 0 < len_candidate <= (f_len // 8):
-                    len_val = len_candidate
-
+        hdr_bits = frame_raw[header_offset : header_offset + header_len_bits]
+        if len(hdr_bits) >= 16:
+            h_bytes = np.packbits(hdr_bits)
             if len(h_bytes) >= 4:
-                seq_num = int(h_bytes[2]) * 256 + int(h_bytes[3])
-            elif len(h_bytes) >= 1:
-                seq_num = int(h_bytes[0])
+                cand1 = int(h_bytes[0]) * 256 + int(h_bytes[1])
+                cand2 = int(h_bytes[2]) * 256 + int(h_bytes[3])
+                if 0 < cand2 <= (f_len // 8) and cand1 < 65000:
+                    seq_num = cand1
+                    len_val = cand2
+                elif 0 < cand1 <= (f_len // 8) and cand2 < 65000:
+                    seq_num = cand2
+                    len_val = cand1
+                else:
+                    seq_num = cand1
+                    len_val = cand2
+            elif len(h_bytes) >= 2:
+                cand = int(h_bytes[0]) * 256 + int(h_bytes[1])
+                if 0 < cand <= (f_len // 8):
+                    len_val = cand
+                else:
+                    seq_num = cand
 
         frames.append(
             FrameCandidate(

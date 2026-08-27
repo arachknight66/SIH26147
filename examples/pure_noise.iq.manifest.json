@@ -1,0 +1,4 @@
+{
+  "ground_truth": "NOISE",
+  "expected_status": "REJECTED_OR_INSUFFICIENT_EVIDENCE"
+}

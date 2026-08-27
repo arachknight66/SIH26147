@@ -1,0 +1,4 @@
+{
+  "ground_truth": "ADVERSARIAL_RANDOM",
+  "expected_status": "REJECTED_OR_FALSIFIED"
+}

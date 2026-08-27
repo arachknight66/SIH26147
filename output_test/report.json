@@ -1,0 +1,220 @@
+{
+  "schema_version": "1.0",
+  "project": "SIH26147 Signal Recovery & Scientific Verification Engine",
+  "is_success": true,
+  "is_verified": false,
+  "final_assessment": "Status: STRONGLY_SUPPORTED | Quality: MEDIUM | Verified: False",
+  "input": {
+    "source_path": "examples/clean_qpsk.iq",
+    "sha256": "51e70565d03b5dd46d195bbaacc31063c59d2bfc88980c170816fae25d273716",
+    "sample_count": 3040,
+    "format": "raw_iq",
+    "dtype": "complex64"
+  },
+  "phase2_physical": {
+    "snr_db": 0.0,
+    "bandwidth_hz": null,
+    "noise_floor_db": -0.05,
+    "detected_regions_count": 2
+  },
+  "phase3_modulation": {
+    "winner": null,
+    "winner_score": null,
+    "hypotheses": [
+      {
+        "label": "QPSK",
+        "score": 0.272,
+        "family": "PSK",
+        "order": 4
+      },
+      {
+        "label": "8PSK",
+        "score": 0.203,
+        "family": "PSK",
+        "order": 8
+      },
+      {
+        "label": "16QAM",
+        "score": 0.0,
+        "family": "QAM",
+        "order": 16
+      },
+      {
+        "label": "2-FSK",
+        "score": 0.0,
+        "family": "FSK",
+        "order": 2
+      },
+      {
+        "label": "BPSK",
+        "score": 0.0,
+        "family": "PSK",
+        "order": 2
+      }
+    ]
+  },
+  "phase4_recovery": {
+    "lock_status": "recovered",
+    "evm_percent": 18.01,
+    "cfo_normalized": 0.062873,
+    "samples_per_symbol": 4.0
+  },
+  "phase5_data": {
+    "status": "integrity_supported",
+    "frames_recovered": 4,
+    "fec_code": "UNCODED",
+    "fec_corrected_bits": 0,
+    "crc_name": "CRC-16-CCITT-FALSE",
+    "payload_bytes_length": 128
+  },
+  "phase6_verification": {
+    "status": "strongly_supported",
+    "is_verified": false,
+    "claims": [
+      {
+        "claim_id": 1,
+        "claim_text": "The physical signal representation is finite, non-clipping, and consistent.",
+        "status": "contradicted",
+        "confidence": 0.2,
+        "independence": "independent"
+      },
+      {
+        "claim_id": 2,
+        "claim_text": "The recovered modulation is 4-PSK.",
+        "status": "supported",
+        "confidence": 0.9,
+        "independence": "independent"
+      },
+      {
+        "claim_id": 3,
+        "claim_text": "Carrier and symbol synchronization is temporally stable across signal windows.",
+        "status": "supported",
+        "confidence": 0.938,
+        "independence": "independent"
+      },
+      {
+        "claim_id": 4,
+        "claim_text": "The detected frame boundaries (length 304 bits) are genuine and sharp.",
+        "status": "supported",
+        "confidence": 0.9,
+        "independence": "independent"
+      },
+      {
+        "claim_id": 6,
+        "claim_text": "The CRC integrity hypothesis (CRC-16-CCITT-FALSE) is statistically significant on held-out frames.",
+        "status": "strongly_supported",
+        "confidence": 0.95,
+        "independence": "independent"
+      }
+    ],
+    "error_budget": {
+      "carrier_uncertainty": 0.0455,
+      "timing_uncertainty": 0.0227,
+      "bit_error_rate_proxy": 0.001,
+      "fec_residual_uncertainty": 0.0,
+      "total_composite_uncertainty": 0.0508,
+      "summary": "Carrier: 4.55%, Timing: 2.27%, BER Proxy: 0.10%, Total: 5.08%"
+    },
+    "reproducibility_hash": "42981879730895e58180cf5956f28f8c1e2c2de18a8e74b3a7ffe2306a0e3ab0"
+  },
+  "provenance": {
+    "input_sha256": "51e70565d03b5dd46d195bbaacc31063c59d2bfc88980c170816fae25d273716",
+    "software_name": "SIH26147 Signal Recovery & Scientific Verification Engine",
+    "software_version": "0.7.0",
+    "python_version": "3.11.15",
+    "platform_system": "Windows",
+    "platform_machine": "AMD64",
+    "configuration_hash": "7ef16df6b2f73524f140fe5c824c606d6dd13abe4556a2623410226c3e4561c7",
+    "configuration_dict": {
+      "preset": "fast_screening",
+      "random_seed": 42,
+      "ingest": {
+        "max_samples": 10000000,
+        "chunk_size": 1000000,
+        "allow_memory_map": true,
+        "strict_finiteness": true
+      },
+      "analysis": {
+        "fft_size": 2048,
+        "welch_segment_length": 1024,
+        "welch_overlap": 0.5,
+        "welch_window": "hann",
+        "noise_estimation_percentile": 25.0,
+        "detection_threshold_db": 6.0,
+        "obw_fractions": [
+          0.99,
+          0.95
+        ],
+        "max_autocorrelation_lag": 2048
+      },
+      "modulation": {
+        "max_hypotheses": 5,
+        "min_confidence_threshold": 0.15,
+        "enable_cumulant_features": true,
+        "enable_spectral_features": true,
+        "enable_cyclic_features": true
+      },
+      "recovery": {
+        "max_candidates": 3,
+        "sps_search_range": [
+          1.5,
+          32.0
+        ],
+        "cfo_search_range": 0.1,
+        "loop_bandwidth": 0.015,
+        "damping_factor": 0.707,
+        "max_ted_iterations": 2000
+      },
+      "data_recovery": {
+        "max_reconstruction_candidates": 3,
+        "eval_all_bit_offsets": true,
+        "eval_polarity_inversion": true,
+        "eval_rotational_ambiguities": true,
+        "max_fec_correction_fraction": 0.1,
+        "enable_viterbi": true,
+        "enable_descrambler": true
+      },
+      "verification": {
+        "temporal_windows": 4,
+        "min_window_consistency": 0.8,
+        "held_out_ratio": 0.3,
+        "multiple_testing_alpha": 0.01,
+        "boundary_perturbation_offsets": [
+          -2,
+          -1,
+          1,
+          2
+        ],
+        "strict_falsification": true
+      },
+      "limits": {
+        "max_preview_samples": 100000,
+        "max_analysis_samples": 500000,
+        "max_runtime_seconds": 60.0,
+        "max_memory_mb": 4096
+      },
+      "user_overrides": {}
+    },
+    "random_seed": 42,
+    "reproducibility_hash": "1ff4375d68855c8e26833e93238059a53a2134857af948e936a6342ca4a2ed27",
+    "timestamp_utc": "2026-08-27T15:51:09.865714+00:00",
+    "stage_durations": {
+      "phase1": 0.0012,
+      "phase2": 0.0105,
+      "phase3": 0.0114,
+      "phase4": 0.2718,
+      "phase5": 2.4379,
+      "phase6": 0.0288
+    },
+    "user_overrides": {}
+  },
+  "durations_seconds": {
+    "total": 2.7621,
+    "phase1": 0.0012,
+    "phase2": 0.0105,
+    "phase3": 0.0114,
+    "phase4": 0.2718,
+    "phase5": 2.4379,
+    "phase6": 0.0288
+  }
+}
