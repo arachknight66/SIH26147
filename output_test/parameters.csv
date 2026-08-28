@@ -1,0 +1,11 @@
+parameter_name,value,unit,epistemic_status
+Modulation Winner,UNKNOWN,dimensionless,INFERRED
+Modulation Confidence,0.0,score,INFERRED
+Samples Per Symbol,4.00,samples/symbol,INFERRED
+EVM RMS,18.01,%,MEASURED
+Residual CFO,0.062873,normalized,MEASURED
+SNR Estimate,0.00,dB,ESTIMATED
+Occupied Bandwidth,UNKNOWN,Hz,ESTIMATED
+FEC Code,UNCODED,string,INFERRED
+Integrity CRC,CRC-16-CCITT-FALSE,string,INFERRED
+Verification Status,STRONGLY_SUPPORTED,status,UNVERIFIED
