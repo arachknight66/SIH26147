@@ -156,7 +156,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     </div>
     <div class="btn-group">
       <input type="file" id="file_input" style="display:none" onchange="uploadSignalFile(this.files[0])" accept=".iq,.wav,.sigmf-meta,.raw,.bin">
-      <button class="btn-primary" onclick="document.getElementById('file_input').click()">📂 Import Signal File</button>
+      <button class="btn-primary" onclick="document.getElementById('file_input').click()">📂 Import Signal (.iq/.wav)</button>
       <button class="btn-demo" onclick="runDemo()">⭐ Clean QPSK Benchmark</button>
       <button onclick="runAnalyze('examples/noisy_qpsk_fec.iq')">▶ Noisy QPSK (FEC)</button>
       <button onclick="runAnalyze('examples/scrambled_frame.iq')">▶ Scrambled Frame</button>
@@ -173,7 +173,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   <!-- Content Views -->
   <div id="content">
     
-    <!-- Page 01: Final Assessment -->
+    <!-- Page 01: Final Assessment & Multi-Plot Overview -->
     <div id="p_assessment" class="page active">
       <div class="dropzone" onclick="document.getElementById('file_input').click()">
         <div style="font-size: 1.05rem; font-weight: 700; color: var(--cyan); margin-bottom: 4px;">📂 Drop Signal Capture Here (.iq, .raw, .bin, .wav, .sigmf-meta)</div>
@@ -205,7 +205,30 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <button onclick="openWhyModal()">🔍 Inspect Evidence ("WHY?" Analysis)</button>
         </div>
         <div id="assessment_text" style="font-size: 0.95rem; line-height: 1.6; color: #e2e8f0;">
-          Import an IQ signal recording or run a benchmark to trigger the full 6-phase scientific pipeline.
+          Import an IQ/WAV signal recording or run a benchmark to trigger the full 6-phase scientific pipeline.
+        </div>
+      </div>
+
+      <!-- Quick 4-Quadrant Signal Visualization Grid -->
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">Time-Domain Waveform (I/Q)</div>
+          <canvas id="overview_waveform" style="height: 220px;"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-title">Power Spectral Density (PSD)</div>
+          <canvas id="overview_psd" style="height: 220px;"></canvas>
+        </div>
+      </div>
+
+      <div class="grid-2">
+        <div class="card">
+          <div class="card-title">2D STFT Spectrogram Heatmap</div>
+          <canvas id="overview_spectrogram" style="height: 220px;"></canvas>
+        </div>
+        <div class="card">
+          <div class="card-title">1-SPS Constellation Diagram</div>
+          <canvas id="overview_constellation" style="height: 220px;"></canvas>
         </div>
       </div>
 
@@ -224,7 +247,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <span>Time-Domain Sample Waveform (I: Cyan / Q: Amber)</span>
           <span id="wf_sample_count" class="badge badge-measured">0 SAMPLES</span>
         </div>
-        <canvas id="canvas_waveform" style="height: 320px;"></canvas>
+        <canvas id="canvas_waveform" style="height: 380px;"></canvas>
       </div>
     </div>
 
@@ -235,7 +258,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <span>Welch Power Spectral Density (Normalized Frequency)</span>
           <span id="psd_noise_badge" class="badge badge-estimated">NOISE FLOOR: N/A</span>
         </div>
-        <canvas id="canvas_psd" style="height: 320px;"></canvas>
+        <canvas id="canvas_psd" style="height: 380px;"></canvas>
       </div>
     </div>
 
@@ -246,7 +269,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <span>STFT Time-Frequency Waterfall Spectrogram</span>
           <span id="spectro_readout" style="font-size: 0.8rem; font-family: var(--mono); color: var(--amber);">Hover cursor over heatmap</span>
         </div>
-        <canvas id="canvas_spectrogram" style="height: 380px; cursor: crosshair;"></canvas>
+        <canvas id="canvas_spectrogram" style="height: 420px; cursor: crosshair;"></canvas>
       </div>
     </div>
 
@@ -277,7 +300,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div class="grid-2">
         <div class="card">
           <div class="card-title">1-SPS Recovered Constellation Diagram (I/Q)</div>
-          <canvas id="canvas_constellation" style="height: 340px;"></canvas>
+          <canvas id="canvas_constellation" style="height: 360px;"></canvas>
         </div>
         <div class="card">
           <div class="card-title">Carrier & Timing Demodulation Metrics</div>
@@ -419,6 +442,8 @@ function closeWhyModal() {
 
 async function runDemo() {
   document.getElementById('lbl_target').innerText = "Analyzing Clean QPSK Benchmark (examples/clean_qpsk.iq)...";
+  document.getElementById('badge_integrity').className = "badge badge-estimated";
+  document.getElementById('badge_integrity').innerText = "PROCESSING...";
   try {
     const res = await fetch(API_BASE + '/api/run-file', { method: 'POST', body: JSON.stringify({ path: 'examples/clean_qpsk.iq' }) });
     const data = await res.json();
@@ -431,6 +456,8 @@ async function runDemo() {
 
 async function runAnalyze(path) {
   document.getElementById('lbl_target').innerText = "Analyzing " + path + "...";
+  document.getElementById('badge_integrity').className = "badge badge-estimated";
+  document.getElementById('badge_integrity').innerText = "PROCESSING...";
   try {
     const res = await fetch(API_BASE + '/api/run-file', { method: 'POST', body: JSON.stringify({ path: path }) });
     const data = await res.json();
@@ -443,7 +470,10 @@ async function runAnalyze(path) {
 
 async function uploadSignalFile(file) {
   if (!file) return;
-  document.getElementById('lbl_target').innerText = "Uploading & Analyzing " + file.name + "...";
+  document.getElementById('lbl_target').innerText = "Analyzing " + file.name + "...";
+  document.getElementById('badge_integrity').className = "badge badge-estimated";
+  document.getElementById('badge_integrity').innerText = "PROCESSING...";
+  document.getElementById('assessment_text').innerText = "Executing 6-phase scientific pipeline on " + file.name + "...";
   
   const formData = new FormData();
   formData.append('file', file);
@@ -457,11 +487,14 @@ async function uploadSignalFile(file) {
       throw new Error("Server returned status " + res.status);
     }
     const data = await res.json();
+    console.log("Pipeline result:", data);
     updateUI(data);
   } catch (err) {
     console.error("Upload error:", err);
     alert("Upload and analysis error: " + err.message);
     document.getElementById('lbl_target').innerText = "Error analyzing " + file.name;
+    document.getElementById('badge_integrity').className = "badge badge-fail";
+    document.getElementById('badge_integrity').innerText = "ERROR";
   }
 }
 
@@ -502,7 +535,6 @@ function updateUI(data) {
   const p6 = data.phase6_verification || {};
   const prov = data.provenance || {};
   const dur = data.durations_seconds || {};
-  const plots = data.plots || {};
 
   // Top bar & simulation banner
   document.getElementById('lbl_target').innerText = inp.source_path || "Uploaded Signal";
@@ -669,200 +701,184 @@ function updateUI(data) {
   drawPlots();
 }
 
-function drawPlots() {
+function _renderCanvasWaveform(canvasId) {
   if (!currentData || !currentData.plots) return;
-  const plots = currentData.plots;
+  const c = document.getElementById(canvasId);
+  if (!c || c.clientWidth === 0) return;
+  c.width = c.clientWidth; c.height = c.clientHeight || 240;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, c.width, c.height);
 
-  // 1. Constellation Plot (Actual 1-SPS recovered symbols)
-  const c = document.getElementById('canvas_constellation');
-  if (c && c.clientWidth > 0) {
-    c.width = c.clientWidth; c.height = c.clientHeight || 340;
-    const ctx = c.getContext('2d');
-    ctx.clearRect(0, 0, c.width, c.height);
-    ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, c.width, c.height);
-    
-    // Grid lines
+  const w_i = currentData.plots.waveform_i || [];
+  const w_q = currentData.plots.waveform_q || [];
+  if (w_i.length > 0) {
+    let maxAmp = 1e-4;
+    for (let k = 0; k < w_i.length; k++) {
+      maxAmp = Math.max(maxAmp, Math.abs(w_i[k]), Math.abs(w_q[k] || 0));
+    }
+    const scaleY = (c.height * 0.42) / maxAmp;
+    const stepX = c.width / Math.max(1, w_i.length - 1);
+
     ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(c.width / 2, 0); ctx.lineTo(c.width / 2, c.height); ctx.stroke();
     ctx.beginPath(); ctx.moveTo(0, c.height / 2); ctx.lineTo(c.width, c.height / 2); ctx.stroke();
 
-    const i_pts = plots.const_i || [];
-    const q_pts = plots.const_q || [];
-    if (i_pts.length > 0) {
-      let maxVal = 1.0;
-      for (let k = 0; k < i_pts.length; k++) {
-        maxVal = Math.max(maxVal, Math.abs(i_pts[k]), Math.abs(q_pts[k]));
-      }
-      const scale = (Math.min(c.width, c.height) * 0.40) / maxVal;
-      
-      // Draw unit circle reference
-      ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
-      ctx.beginPath(); ctx.arc(c.width / 2, c.height / 2, (1.0 / maxVal) * (Math.min(c.width, c.height) * 0.40), 0, Math.PI * 2); ctx.stroke();
-      ctx.setLineDash([]);
-
-      // Draw recovered symbol scatter points
-      ctx.fillStyle = 'rgba(56, 189, 248, 0.85)';
-      for (let k = 0; k < i_pts.length; k++) {
-        const x = c.width / 2 + i_pts[k] * scale;
-        const y = c.height / 2 - q_pts[k] * scale;
-        ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
-      }
-    } else {
-      ctx.fillStyle = '#64748b'; ctx.font = '13px monospace';
-      ctx.fillText('No 1-SPS recovered symbols available.', 24, 36);
+    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5; ctx.beginPath();
+    for (let k = 0; k < w_i.length; k++) {
+      const x = k * stepX;
+      const y = c.height / 2 - w_i[k] * scaleY;
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
     }
-  }
+    ctx.stroke();
 
-  // 2. Waveform Plot (Actual measured I & Q time-domain samples)
-  const w = document.getElementById('canvas_waveform');
-  if (w && w.clientWidth > 0) {
-    w.width = w.clientWidth; w.height = w.clientHeight || 320;
-    const ctx = w.getContext('2d');
-    ctx.clearRect(0, 0, w.width, w.height);
-    ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, w.width, w.height);
-
-    const w_i = plots.waveform_i || [];
-    const w_q = plots.waveform_q || [];
-    if (w_i.length > 0) {
-      let maxAmp = 1e-4;
-      for (let k = 0; k < w_i.length; k++) {
-        maxAmp = Math.max(maxAmp, Math.abs(w_i[k]), Math.abs(w_q[k] || 0));
-      }
-      const scaleY = (w.height * 0.42) / maxAmp;
-      const stepX = w.width / Math.max(1, w_i.length - 1);
-
-      // Center zero line
-      ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
-      ctx.beginPath(); ctx.moveTo(0, w.height / 2); ctx.lineTo(w.width, w.height / 2); ctx.stroke();
-
-      // In-phase (cyan)
-      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5; ctx.beginPath();
-      for (let k = 0; k < w_i.length; k++) {
+    if (w_q.length > 0) {
+      ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.2; ctx.beginPath();
+      for (let k = 0; k < w_q.length; k++) {
         const x = k * stepX;
-        const y = w.height / 2 - w_i[k] * scaleY;
+        const y = c.height / 2 - w_q[k] * scaleY;
         if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
       }
       ctx.stroke();
-
-      // Quadrature (amber)
-      if (w_q.length > 0) {
-        ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.2; ctx.beginPath();
-        for (let k = 0; k < w_q.length; k++) {
-          const x = k * stepX;
-          const y = w.height / 2 - w_q[k] * scaleY;
-          if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-        }
-        ctx.stroke();
-      }
-    } else {
-      ctx.fillStyle = '#64748b'; ctx.font = '13px monospace';
-      ctx.fillText('No time-domain sample waveform loaded.', 24, 36);
     }
-  }
-
-  // 3. Welch PSD Plot (Actual measured physical power spectrum)
-  const p = document.getElementById('canvas_psd');
-  if (p && p.clientWidth > 0) {
-    p.width = p.clientWidth; p.height = p.clientHeight || 320;
-    const ctx = p.getContext('2d');
-    ctx.clearRect(0, 0, p.width, p.height);
-    ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, p.width, p.height);
-
-    const psd_p = plots.psd_p || [];
-    if (psd_p.length > 0) {
-      let minP = -100.0;
-      let maxP = 0.0;
-      for (let k = 0; k < psd_p.length; k++) {
-        minP = Math.min(minP, psd_p[k]);
-        maxP = Math.max(maxP, psd_p[k]);
-      }
-      const rangeP = Math.max(10.0, maxP - minP);
-      const stepX = p.width / Math.max(1, psd_p.length - 1);
-
-      // Grid lines
-      ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
-      for (let g = 0; g <= 4; g++) {
-        const yG = 20 + g * ((p.height - 40) / 4);
-        ctx.beginPath(); ctx.moveTo(0, yG); ctx.lineTo(p.width, yG); ctx.stroke();
-      }
-
-      // Noise floor threshold line
-      const nf = plots.noise_floor_dbfs != null ? plots.noise_floor_dbfs : minP + 10;
-      const nfY = p.height - 20 - ((nf - minP) / rangeP) * (p.height - 40);
-      ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)'; ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
-      ctx.beginPath(); ctx.moveTo(0, nfY); ctx.lineTo(p.width, nfY); ctx.stroke();
-      ctx.setLineDash([]);
-
-      // PSD spectrum trace
-      ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 1.8; ctx.beginPath();
-      for (let k = 0; k < psd_p.length; k++) {
-        const x = k * stepX;
-        const y = p.height - 20 - ((psd_p[k] - minP) / rangeP) * (p.height - 40);
-        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
-      }
-      ctx.stroke();
-    } else {
-      ctx.fillStyle = '#64748b'; ctx.font = '13px monospace';
-      ctx.fillText('No Welch PSD spectrum computed.', 24, 36);
-    }
-  }
-
-  // 4. 2D Spectrogram Heatmap
-  const spCanvas = document.getElementById('canvas_spectrogram');
-  if (spCanvas && spCanvas.clientWidth > 0) {
-    spCanvas.width = spCanvas.clientWidth; spCanvas.height = spCanvas.clientHeight || 380;
-    const ctx = spCanvas.getContext('2d');
-    ctx.clearRect(0, 0, spCanvas.width, spCanvas.height);
-    ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, spCanvas.width, spCanvas.height);
-
-    const spData = plots.spectrogram || {};
-    if (spData.available && spData.matrix && spData.matrix.length > 0) {
-      const mat = spData.matrix; // [n_freqs][n_times]
-      const nF = mat.length;
-      const nT = mat[0].length;
-      const minD = spData.min_dbfs || -100.0;
-      const maxD = spData.max_dbfs || 0.0;
-      const rangeD = Math.max(1.0, maxD - minD);
-
-      const cellW = spCanvas.width / nT;
-      const cellH = spCanvas.height / nF;
-
-      for (let f = 0; f < nF; f++) {
-        for (let t = 0; t < nT; t++) {
-          const val = mat[f][t];
-          const norm = Math.max(0, Math.min(1, (val - minD) / rangeD));
-          
-          // Magma/Turbo-style scientific colormap: black -> purple -> red -> yellow -> white
-          let r = 0, g = 0, b = 0;
-          if (norm < 0.25) {
-            b = Math.round(norm * 4 * 180);
-          } else if (norm < 0.5) {
-            r = Math.round((norm - 0.25) * 4 * 200);
-            b = 180;
-          } else if (norm < 0.75) {
-            r = 220;
-            g = Math.round((norm - 0.5) * 4 * 200);
-            b = Math.round(180 * (1 - (norm - 0.5) * 4));
-          } else {
-            r = 255;
-            g = 200 + Math.round((norm - 0.75) * 4 * 55);
-            b = Math.round((norm - 0.75) * 4 * 255);
-          }
-
-          ctx.fillStyle = `rgb(${r},${g},${b})`;
-          // Draw from top (high freq) to bottom (low freq)
-          const y = (nF - 1 - f) * cellH;
-          ctx.fillRect(t * cellW, y, cellW + 0.5, cellH + 0.5);
-        }
-      }
-    } else {
-      ctx.fillStyle = '#64748b'; ctx.font = '13px monospace';
-      ctx.fillText('No STFT spectrogram matrix computed.', 24, 36);
-    }
+  } else {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px monospace';
+    ctx.fillText('No waveform data loaded.', 20, 30);
   }
 }
 
-// Interactive spectrogram hover readout
+function _renderCanvasPSD(canvasId) {
+  if (!currentData || !currentData.plots) return;
+  const c = document.getElementById(canvasId);
+  if (!c || c.clientWidth === 0) return;
+  c.width = c.clientWidth; c.height = c.clientHeight || 240;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, c.width, c.height);
+
+  const psd_p = currentData.plots.psd_p || [];
+  if (psd_p.length > 0) {
+    let minP = -100.0, maxP = 0.0;
+    for (let k = 0; k < psd_p.length; k++) {
+      minP = Math.min(minP, psd_p[k]);
+      maxP = Math.max(maxP, psd_p[k]);
+    }
+    const rangeP = Math.max(10.0, maxP - minP);
+    const stepX = c.width / Math.max(1, psd_p.length - 1);
+
+    ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
+    for (let g = 0; g <= 4; g++) {
+      const yG = 20 + g * ((c.height - 40) / 4);
+      ctx.beginPath(); ctx.moveTo(0, yG); ctx.lineTo(c.width, yG); ctx.stroke();
+    }
+
+    const nf = currentData.plots.noise_floor_dbfs != null ? currentData.plots.noise_floor_dbfs : minP + 10;
+    const nfY = c.height - 20 - ((nf - minP) / rangeP) * (c.height - 40);
+    ctx.strokeStyle = 'rgba(239, 68, 68, 0.7)'; ctx.lineWidth = 1.2; ctx.setLineDash([4, 4]);
+    ctx.beginPath(); ctx.moveTo(0, nfY); ctx.lineTo(c.width, nfY); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 1.8; ctx.beginPath();
+    for (let k = 0; k < psd_p.length; k++) {
+      const x = k * stepX;
+      const y = c.height - 20 - ((psd_p[k] - minP) / rangeP) * (c.height - 40);
+      if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+    }
+    ctx.stroke();
+  } else {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px monospace';
+    ctx.fillText('No PSD spectrum computed.', 20, 30);
+  }
+}
+
+function _renderCanvasSpectrogram(canvasId) {
+  if (!currentData || !currentData.plots) return;
+  const c = document.getElementById(canvasId);
+  if (!c || c.clientWidth === 0) return;
+  c.width = c.clientWidth; c.height = c.clientHeight || 240;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, c.width, c.height);
+
+  const sp = currentData.plots.spectrogram || {};
+  if (sp.available && sp.matrix && sp.matrix.length > 0) {
+    const mat = sp.matrix;
+    const nF = mat.length;
+    const nT = mat[0].length;
+    const minD = sp.min_dbfs || -100.0;
+    const maxD = sp.max_dbfs || 0.0;
+    const rangeD = Math.max(1.0, maxD - minD);
+    const cellW = c.width / nT;
+    const cellH = c.height / nF;
+
+    for (let f = 0; f < nF; f++) {
+      for (let t = 0; t < nT; t++) {
+        const val = mat[f][t];
+        const norm = Math.max(0, Math.min(1, (val - minD) / rangeD));
+        let r = 0, g = 0, b = 0;
+        if (norm < 0.25) { b = Math.round(norm * 4 * 180); }
+        else if (norm < 0.5) { r = Math.round((norm - 0.25) * 4 * 200); b = 180; }
+        else if (norm < 0.75) { r = 220; g = Math.round((norm - 0.5) * 4 * 200); b = Math.round(180 * (1 - (norm - 0.5) * 4)); }
+        else { r = 255; g = 200 + Math.round((norm - 0.75) * 4 * 55); b = Math.round((norm - 0.75) * 4 * 255); }
+        ctx.fillStyle = `rgb(${r},${g},${b})`;
+        const y = (nF - 1 - f) * cellH;
+        ctx.fillRect(t * cellW, y, cellW + 0.5, cellH + 0.5);
+      }
+    }
+  } else {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px monospace';
+    ctx.fillText('No STFT spectrogram matrix computed.', 20, 30);
+  }
+}
+
+function _renderCanvasConstellation(canvasId) {
+  if (!currentData || !currentData.plots) return;
+  const c = document.getElementById(canvasId);
+  if (!c || c.clientWidth === 0) return;
+  c.width = c.clientWidth; c.height = c.clientHeight || 240;
+  const ctx = c.getContext('2d');
+  ctx.clearRect(0, 0, c.width, c.height);
+  ctx.fillStyle = '#03060f'; ctx.fillRect(0, 0, c.width, c.height);
+
+  ctx.strokeStyle = '#1e293b'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.moveTo(c.width / 2, 0); ctx.lineTo(c.width / 2, c.height); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(0, c.height / 2); ctx.lineTo(c.width, c.height / 2); ctx.stroke();
+
+  const i_pts = currentData.plots.const_i || [];
+  const q_pts = currentData.plots.const_q || [];
+  if (i_pts.length > 0) {
+    let maxVal = 1.0;
+    for (let k = 0; k < i_pts.length; k++) {
+      maxVal = Math.max(maxVal, Math.abs(i_pts[k]), Math.abs(q_pts[k]));
+    }
+    const scale = (Math.min(c.width, c.height) * 0.40) / maxVal;
+    ctx.strokeStyle = 'rgba(56, 189, 248, 0.2)'; ctx.lineWidth = 1; ctx.setLineDash([3, 3]);
+    ctx.beginPath(); ctx.arc(c.width / 2, c.height / 2, (1.0 / maxVal) * (Math.min(c.width, c.height) * 0.40), 0, Math.PI * 2); ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = 'rgba(56, 189, 248, 0.85)';
+    for (let k = 0; k < i_pts.length; k++) {
+      const x = c.width / 2 + i_pts[k] * scale;
+      const y = c.height / 2 - q_pts[k] * scale;
+      ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+    }
+  } else {
+    ctx.fillStyle = '#64748b'; ctx.font = '12px monospace';
+    ctx.fillText('No 1-SPS constellation available.', 20, 30);
+  }
+}
+
+function drawPlots() {
+  _renderCanvasWaveform('overview_waveform');
+  _renderCanvasPSD('overview_psd');
+  _renderCanvasSpectrogram('overview_spectrogram');
+  _renderCanvasConstellation('overview_constellation');
+  _renderCanvasWaveform('canvas_waveform');
+  _renderCanvasPSD('canvas_psd');
+  _renderCanvasSpectrogram('canvas_spectrogram');
+  _renderCanvasConstellation('canvas_constellation');
+}
+
+// Spectrogram cursor readout
 const spCanvasEl = document.getElementById('canvas_spectrogram');
 if (spCanvasEl) {
   spCanvasEl.addEventListener('mousemove', (e) => {
