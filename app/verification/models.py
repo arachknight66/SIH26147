@@ -180,6 +180,16 @@ class ScramblerAuditResult:
     details: dict[str, Any] = field(default_factory=dict)
 
 @dataclass(frozen=True)
+class InterleaverAuditResult:
+    interleaver_type: str
+    parameter_perturbation_passed: bool
+    held_out_validation_passed: bool
+    improves_framing: bool
+    improves_integrity: bool
+    is_verified: bool
+    details: dict[str, Any] = field(default_factory=dict)
+
+@dataclass(frozen=True)
 class RobustnessAuditResult:
     bit_flip_tolerance_score: float
     burst_error_tolerance_score: float

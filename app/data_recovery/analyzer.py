@@ -101,7 +101,18 @@ def recover_data(
         is_ambiguous=is_ambig,
         failure_reason=None if is_rec else "Data recovery inconclusive across candidate reconstructions",
         diagnostics=all_diagnostics,
-        provenance={"num_candidates_attempted": len(recon_candidates)},
+        provenance={
+            "num_candidates_attempted": len(recon_candidates),
+            "bit_hypothesis_count": len(bit_hypotheses),
+            "search_controls": {
+                "evaluate_all_bit_offsets": cfg.evaluate_all_bit_offsets,
+                "evaluate_polarity_inversion": cfg.evaluate_polarity_inversion,
+                "evaluate_rotational_ambiguities": cfg.evaluate_rotational_ambiguities,
+                "enable_viterbi": cfg.enable_viterbi,
+                "enable_descrambler": cfg.enable_descrambler,
+                "enable_hamming": cfg.enable_hamming,
+            },
+        },
         phase6_handoff=handoff,
     )
 

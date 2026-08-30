@@ -20,3 +20,7 @@ def test_self_diagnostics_healthy():
     assert "overall_health" in diag
     assert diag["overall_health"] in ("HEALTHY", "DEGRADED")
     assert diag.get("phase2_measurement") == "PASS"
+
+
+def test_deployment_diagnostics_does_not_import_test_helpers():
+    assert "tests.test_phase6_cases" not in __import__("app.deployment.diagnostics", fromlist=["run_self_diagnostics"]).__dict__

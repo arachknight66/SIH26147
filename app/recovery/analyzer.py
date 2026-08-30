@@ -1,4 +1,5 @@
 from __future__ import annotations
+from dataclasses import replace
 from typing import Sequence
 import numpy as np
 from app.models.analysis import DetectedRegion, SignalAnalysis
@@ -101,7 +102,8 @@ def recover_signal(
     all_diagnostics.extend(rank_diags)
 
     # 7. Evaluate Windowed Temporal Stability on Selected Candidate
-    if selected is not None and selected.quality.quality_level == RecoveryQualityLevel.HIGH:
+    window_stability: float | None = None
+    if selected is not None and selected.quality.quality_level in (RecoveryQualityLevel.HIGH, RecoveryQualityLevel.MODERATE):
         def runner(s_slice: np.ndarray) -> RecoveryCandidate:
             return execute_candidate_recovery(
                 s_slice,
@@ -115,6 +117,9 @@ def recover_signal(
         
         w_score, w_diags = evaluate_windowed_stability(cond_samples, runner, num_windows=cfg.window_count)
         all_diagnostics.extend(w_diags)
+        window_stability = w_score
+        selected = replace(selected, quality=replace(selected.quality, window_consistency_score=w_score))
+        ranked = [selected if candidate.candidate_id == selected.candidate_id else candidate for candidate in ranked]
 
     is_recovered = (selected is not None and rec_sig is not None)
     is_inconclusive = not is_recovered
@@ -130,7 +135,12 @@ def recover_signal(
         wrong_hypothesis_detected=wrong_hyp,
         failure_reason=None if is_recovered else "Recovery inconclusive across all attempted receiver candidates",
         diagnostics=all_diagnostics,
-        provenance={"preprocessing": prep_prov, "num_candidates_attempted": len(executed_candidates)},
+        provenance={
+            "preprocessing": prep_prov,
+            "num_candidates_attempted": len(executed_candidates),
+            "window_stability": window_stability,
+            "receiver_assumptions": {"rrc_rolloffs": list(cfg.rrc_rolloffs), "min_recovery_symbols": cfg.min_recovery_symbols},
+        },
     )
 
 def recover_candidate(

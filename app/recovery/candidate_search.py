@@ -93,20 +93,27 @@ def execute_candidate_recovery(
     best_candidate: RecoveryCandidate | None = None
 
     for sps_val in sps_candidates:
-        if family == ModulationFamily.FSK:
-            res = run_fsk_receiver(samples, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, config=cfg)
-        elif family == ModulationFamily.PSK:
-            res = run_psk_receiver(samples, order=order, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, config=cfg)
-        elif family == ModulationFamily.QAM:
-            res = run_qam_receiver(samples, order=order, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, config=cfg)
-        else:
-            res = run_psk_receiver(samples, order=order, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, config=cfg)
+        # RRC roll-off is a receiver assumption, so test the configured bounded
+        # set instead of silently fixing it to one value.
+        rolloffs = (None,) if family == ModulationFamily.FSK else cfg.rrc_rolloffs
+        for rolloff in rolloffs:
+            if family == ModulationFamily.FSK:
+                res = run_fsk_receiver(samples, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, config=cfg)
+            elif family == ModulationFamily.PSK:
+                res = run_psk_receiver(samples, order=order, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, rrc_alpha=float(rolloff), config=cfg)
+            elif family == ModulationFamily.QAM:
+                res = run_qam_receiver(samples, order=order, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, rrc_alpha=float(rolloff), config=cfg)
+            else:
+                res = run_psk_receiver(samples, order=order, candidate_id=candidate_id, sps=sps_val, phase3_score=phase3_score, rrc_alpha=float(rolloff), config=cfg)
 
-        if best_candidate is None or res.quality.composite_score > best_candidate.quality.composite_score:
-            best_candidate = res
+            if best_candidate is None or res.quality.composite_score > best_candidate.quality.composite_score:
+                best_candidate = res
 
-        # Early termination if strong lock & low EVM achieved
-        if best_candidate.quality.composite_score >= 0.85:
+            # Early termination only after a high-quality lock; lower-quality
+            # candidates continue through the configured receiver assumptions.
+            if best_candidate.quality.composite_score >= 0.85:
+                break
+        if best_candidate is not None and best_candidate.quality.composite_score >= 0.85:
             break
 
     return best_candidate or res

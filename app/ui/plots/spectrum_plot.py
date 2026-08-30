@@ -1,13 +1,15 @@
 from __future__ import annotations
 from typing import Any
 import numpy as np
-from .plot_manager import HAS_PYQTGRAPH
 
 try:
     import pyqtgraph as pg
     from PySide6.QtWidgets import QWidget, QVBoxLayout
+    HAS_PYQTGRAPH = True
 except ImportError:
-    pass
+    HAS_PYQTGRAPH = False
+    class QWidget:  # type: ignore[no-redef]
+        def __init__(self, *args: Any, **kwargs: Any) -> None: pass
 
 class SpectrumPlotWidget(QWidget):
     """PyQtGraph widget for Welch PSD and FFT spectrum."""

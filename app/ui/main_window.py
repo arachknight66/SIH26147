@@ -51,6 +51,8 @@ except ImportError:
         def __init__(self, *args: Any, **kwargs: Any) -> None: pass
     class QThread:  # type: ignore[no-redef]
         def __init__(self, *args: Any, **kwargs: Any) -> None: pass
+    def Signal(*args: Any, **kwargs: Any) -> Any:  # type: ignore[no-redef]
+        return None
 
 class PipelineWorker(QThread):
     finished_signal = Signal(object)

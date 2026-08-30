@@ -191,6 +191,19 @@ class SymbolRateCandidate:
     assumptions: list[str] = field(default_factory=list)
     confidence: float = 0.0
     status: MetadataStatus = MetadataStatus.AMBIGUOUS
+    uncertainty: float | None = None
+    rate_hz_uncertainty: float | None = None
+
+@dataclass(frozen=True)
+class ActivityMetrics:
+    """Time-domain occupancy derived from the energy-based burst detector."""
+    active_sample_count: int
+    total_sample_count: int
+    duty_cycle: float
+    burst_count: int
+    method: str
+    quality_score: float
+    evidence: str
 
 @dataclass
 class SignalAnalysis:
@@ -213,5 +226,6 @@ class SignalAnalysis:
     snr_candidates: list[SNREstimate]
     frequency_candidates: list[FrequencyEstimate]
     symbol_rate_candidates: list[SymbolRateCandidate]
+    activity_metrics: ActivityMetrics | None = None
     diagnostics: list[Diagnostic] = field(default_factory=list)
     provenance: dict[str, Any] = field(default_factory=dict)

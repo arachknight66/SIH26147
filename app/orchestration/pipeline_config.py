@@ -36,6 +36,10 @@ class ModulationConfig:
     enable_cumulant_features: bool = True
     enable_spectral_features: bool = True
     enable_cyclic_features: bool = True
+    unknown_threshold: float = 0.45
+    ambiguity_margin: float = 0.08
+    window_count: int = 4
+    max_analysis_samples: int = 65_536
 
 @dataclass(frozen=True)
 class RecoveryConfig:
@@ -102,6 +106,74 @@ class PipelineConfig:
     def compute_hash(self) -> str:
         s = json.dumps(self.to_dict(), sort_keys=True, default=str)
         return hashlib.sha256(s.encode("utf-8")).hexdigest()
+
+    def to_measurement_config(self):
+        """Translate pipeline settings into the Phase 2 DSP configuration."""
+        from app.dsp.pipeline import AnalysisConfig as MeasurementConfig
+
+        return MeasurementConfig(
+            fft_size=self.analysis.fft_size,
+            window=self.analysis.welch_window,
+            psd_segment_length=self.analysis.welch_segment_length,
+            psd_overlap=self.analysis.welch_overlap,
+            spectrogram_fft_size=min(self.analysis.fft_size, 4096),
+            spectrogram_window_length=min(self.analysis.welch_segment_length, 4096),
+            detection_threshold_db=self.analysis.detection_threshold_db,
+            noise_percentile=self.analysis.noise_estimation_percentile,
+            obw_fractions=self.analysis.obw_fractions,
+            max_autocorrelation_lag=self.analysis.max_autocorrelation_lag,
+            max_samples_for_analysis=self.limits.max_analysis_samples,
+        )
+
+    def to_modulation_config(self):
+        """Translate orchestration settings into the deterministic Phase 3 config."""
+        from app.modulation.models import ModulationAnalysisConfig
+
+        return ModulationAnalysisConfig(
+            min_snr_db=3.0,
+            unknown_threshold=self.modulation.unknown_threshold,
+            ambiguity_margin=self.modulation.ambiguity_margin,
+            window_count=self.modulation.window_count,
+            enable_ml=False,
+            random_seed=self.random_seed,
+            max_analysis_samples=self.modulation.max_analysis_samples,
+            max_hypotheses=self.modulation.max_hypotheses,
+        )
+
+    def to_recovery_config(self):
+        """Translate bounded orchestration settings into Phase 4 receiver controls."""
+        from app.recovery.models import RecoveryConfig
+
+        sps_low, sps_high = self.recovery.sps_search_range
+        span = max(sps_high - sps_low, 0.5)
+        step = min(0.25, span / 4.0)
+        return RecoveryConfig(
+            max_candidates=self.recovery.max_candidates,
+            max_symbol_rate_candidates=5,
+            sps_search_delta=span / 2.0,
+            sps_search_step=step,
+            cfo_search_range=self.recovery.cfo_search_range,
+            loop_bandwidth=self.recovery.loop_bandwidth,
+            damping_factor=self.recovery.damping_factor,
+            max_recovery_samples=self.limits.max_analysis_samples,
+            random_seed=self.random_seed,
+        )
+
+    def to_data_recovery_config(self):
+        """Translate Phase 5 search constraints into reconstruction controls."""
+        from app.data_recovery.models import DataRecoveryConfig
+
+        return DataRecoveryConfig(
+            max_bit_hypotheses=self.data_recovery.max_reconstruction_candidates * 4,
+            max_frame_hypotheses=self.data_recovery.max_reconstruction_candidates,
+            max_correction_fraction=self.data_recovery.max_fec_correction_fraction,
+            evaluate_all_bit_offsets=self.data_recovery.eval_all_bit_offsets,
+            evaluate_polarity_inversion=self.data_recovery.eval_polarity_inversion,
+            evaluate_rotational_ambiguities=self.data_recovery.eval_rotational_ambiguities,
+            enable_viterbi=self.data_recovery.enable_viterbi,
+            enable_descrambler=self.data_recovery.enable_descrambler,
+            random_seed=self.random_seed,
+        )
 
 def get_preset_config(preset: PresetName | str, seed: int = 42) -> PipelineConfig:
     if isinstance(preset, str):

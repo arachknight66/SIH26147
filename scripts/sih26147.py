@@ -1,5 +1,6 @@
 from __future__ import annotations
 import argparse
+from dataclasses import replace
 import json
 from pathlib import Path
 import sys
@@ -9,6 +10,27 @@ from app.reporting.artifact_manifest import export_all_artifacts
 from app.replay.runner import replay_experiment
 from app.replay.comparator import compare_runs
 from app.ui.main_window import launch_gui
+
+
+def _add_input_options(parser: argparse.ArgumentParser) -> None:
+    """Options required to interpret metadata-free raw IQ recordings."""
+    parser.add_argument("--raw-dtype", choices=["complex64", "float32", "int8", "int16", "uint8"], default="complex64", help="Scalar storage type for .iq/.raw/.bin inputs")
+    parser.add_argument("--iq-order", choices=["IQ", "QI"], default="IQ", help="Order of scalar pairs in raw IQ input")
+    parser.add_argument("--endian", choices=["little", "big"], default="little", help="Byte order for raw IQ input")
+    parser.add_argument("--sample-rate", type=float, default=None, help="Known sample rate in Hz for metadata-free raw IQ")
+    parser.add_argument("--center-frequency", type=float, default=None, help="Known RF center frequency in Hz for metadata-free raw IQ")
+
+
+def _with_input_overrides(config, args):
+    overrides = dict(config.user_overrides)
+    overrides.update({
+        "raw_dtype": args.raw_dtype,
+        "iq_order": args.iq_order,
+        "endianness": args.endian,
+        "sample_rate_hz": args.sample_rate,
+        "center_frequency_hz": args.center_frequency,
+    })
+    return replace(config, user_overrides=overrides)
 
 def main() -> None:
     parser = argparse.ArgumentParser(
@@ -24,11 +46,13 @@ def main() -> None:
     p_analyze.add_argument("--reproducible", action="store_true", help="Enforce deterministic random seed and configuration freezing")
     p_analyze.add_argument("--export", type=str, default=None, help="Directory to export HTML/JSON/CSV artifacts")
     p_analyze.add_argument("--json", action="store_true", help="Print result as JSON to stdout")
+    _add_input_options(p_analyze)
 
     # Command: verify
     p_verify = subparsers.add_parser("verify", help="Execute Phase 6 independent scientific verification")
     p_verify.add_argument("input_path", type=str, help="Path to input signal recording")
     p_verify.add_argument("--strict", action="store_true", help="Enforce strict falsification criteria")
+    _add_input_options(p_verify)
 
     # Command: replay
     p_replay = subparsers.add_parser("replay", help="Replay a previously executed experiment bundle")
@@ -42,6 +66,10 @@ def main() -> None:
     # Command: gui
     p_gui = subparsers.add_parser("gui", help="Launch interactive desktop GUI")
 
+    # Command: web
+    p_web = subparsers.add_parser("web", help="Launch interactive local web application (opens in browser)")
+    p_web.add_argument("--port", type=int, default=8050, help="Port to run web server on")
+
     # Command: benchmark
     p_bench = subparsers.add_parser("benchmark", help="Run comprehensive system benchmark suite")
 
@@ -50,6 +78,10 @@ def main() -> None:
     if args.command == "gui" or len(sys.argv) == 1:
         sys.exit(launch_gui())
 
+    elif args.command == "web":
+        from app.ui.web_app import launch_web_server
+        launch_web_server(port=args.port, open_browser=True)
+
     elif args.command == "analyze":
         preset_map = {
             "fast": PresetName.FAST_SCREENING,
@@ -57,7 +89,7 @@ def main() -> None:
             "deep": PresetName.DEEP_ANALYSIS,
             "forensic": PresetName.FORENSIC_ANALYSIS,
         }
-        cfg = get_preset_config(preset_map[args.preset], seed=42 if args.reproducible else 42)
+        cfg = _with_input_overrides(get_preset_config(preset_map[args.preset], seed=42), args)
         print(f"Executing SIH26147 Pipeline on: {args.input_path} (Preset: {args.preset.upper()})...")
         res = run_pipeline(args.input_path, config=cfg)
 
@@ -79,7 +111,7 @@ def main() -> None:
             print("=" * 65)
 
     elif args.command == "verify":
-        cfg = get_preset_config(PresetName.FORENSIC_ANALYSIS if args.strict else PresetName.STANDARD_ANALYSIS)
+        cfg = _with_input_overrides(get_preset_config(PresetName.FORENSIC_ANALYSIS if args.strict else PresetName.STANDARD_ANALYSIS), args)
         res = run_pipeline(args.input_path, config=cfg)
         from app.verification.report import format_verification_report
         if res.phase6_result and res.phase6_result.output:

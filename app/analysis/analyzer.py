@@ -51,6 +51,7 @@ def analyze_signal(
     dsp_result = run_dsp_pipeline(
         recording.samples,
         sample_rate_hz=sample_rate_hz,
+        sample_rate_confidence=recording.sample_rate_hz.confidence,
         center_frequency_hz=center_freq_hz,
         is_complex=is_complex,
         original_dtype=recording.original_dtype,
@@ -108,6 +109,7 @@ def analyze_signal(
         snr_candidates=dsp_result.snr_candidates,
         frequency_candidates=dsp_result.frequency_candidates,
         symbol_rate_candidates=dsp_result.symbol_rate_candidates,
+        activity_metrics=dsp_result.activity_metrics,
         diagnostics=combined_diagnostics,
         provenance=provenance,
     )

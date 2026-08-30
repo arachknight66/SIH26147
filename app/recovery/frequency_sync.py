@@ -67,15 +67,16 @@ def estimate_coarse_cfo_mth_power(
     # 3. Method B: FFT Spectral Peak on y[n]
     n_fft = min(8192, 1 << int(np.floor(np.log2(len(y)))))
     if n_fft >= 64:
+        import scipy.fft as sp_fft
         win = np.hanning(n_fft)
         y_seg = y[:n_fft] * win
-        spec = np.abs(np.fft.fft(y_seg, n=n_fft))
-        peak_idx = int(np.argmax(spec))
+        fft_res = sp_fft.fft(y_seg, n=n_fft)
+        power_spec = fft_res.real ** 2 + fft_res.imag ** 2
+        peak_idx = int(np.argmax(power_spec))
         
-        # Parabolic interpolation around peak
-        alpha_val = float(spec[(peak_idx - 1) % n_fft])
-        beta_val = float(spec[peak_idx])
-        gamma_val = float(spec[(peak_idx + 1) % n_fft])
+        # Parabolic interpolation around peak using magnitudes
+        spec_peak_region = np.sqrt(power_spec[[(peak_idx - 1) % n_fft, peak_idx, (peak_idx + 1) % n_fft]])
+        alpha_val, beta_val, gamma_val = float(spec_peak_region[0]), float(spec_peak_region[1]), float(spec_peak_region[2])
         denom = alpha_val - 2.0 * beta_val + gamma_val
         delta_p = 0.5 * (alpha_val - gamma_val) / denom if abs(denom) > 1e-9 else 0.0
         

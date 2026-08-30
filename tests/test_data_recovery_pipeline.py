@@ -39,6 +39,15 @@ def test_recover_data_end_to_end_protocol_a():
     assert res.status in (DataRecoveryStatus.INTEGRITY_SUPPORTED, DataRecoveryStatus.STRUCTURALLY_SUPPORTED)
     assert res.phase6_handoff is not None
     assert len(res.phase6_handoff.payload_bytes) > 0
+    assert len(res.phase6_handoff.frame_boundaries) == len(res.selected_candidate.frames)
+
+def test_recover_data_includes_bounded_bit_alignment_hypotheses():
+    rx_bits, rx_soft, _ = generate_digital_stream(protocol="PROTOCOL_A", num_frames=3, seed=42)
+    rec_sig = _make_rec_sig(rx_bits, rx_soft)
+    res = recover_data(rec_sig)
+    offsets = {candidate.bit_offset for candidate in res.bitstream_candidates}
+    assert 0 in offsets
+    assert any(offset > 0 for offset in offsets)
 
 def test_recover_data_insufficient_data():
     short_bits = np.array([1, 0, 1], dtype=np.uint8)

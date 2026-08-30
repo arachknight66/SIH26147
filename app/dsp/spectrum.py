@@ -1,5 +1,6 @@
 from __future__ import annotations
 import numpy as np
+import scipy.fft as sp_fft
 from app.models.analysis import SpectrumResult
 from .windowing import get_window
 
@@ -15,31 +16,8 @@ def compute_spectrum(
     normalization: str = "coherent",
 ) -> SpectrumResult:
     """
-    Compute FFT spectrum for complex IQ or real signals with rigorous frequency axes and normalization.
-
-    Parameters
-    ----------
-    samples : np.ndarray
-        Input signal samples.
-    fft_size : int
-        Number of FFT points (zero-padded or truncated if length != fft_size).
-    window_name : str
-        Window function name ('hann', 'rectangular', 'blackman', etc.).
-    sample_rate_hz : float | None
-        Physical sample rate if known from metadata.
-    center_frequency_hz : float | None
-        Physical RF center frequency if known.
-    is_complex : bool
-        True if signal is complex IQ; False if real-valued.
-    db_floor : float
-        dB floor relative to peak or absolute minimum power floor to prevent log(0).
-    normalization : str
-        'coherent' (scales by window sum so single tones match physical amplitude)
-        or 'power' (scales by window energy).
-
-    Returns
-    -------
-    SpectrumResult
+    Compute FFT spectrum for complex IQ or real signals with optimized SciPy PocketFFT,
+    rigorous frequency axes, and calibrated normalization.
     """
     if len(samples) == 0:
         raise ValueError("Cannot compute spectrum of empty sample array.")
@@ -58,42 +36,41 @@ def compute_spectrum(
         x_win = np.pad(x_win, (0, pad_width), mode="constant")
 
     if is_complex:
-        fft_raw = np.fft.fft(x_win, n=fft_size)
-        fft_shifted = np.fft.fftshift(fft_raw)
-        
-        freq_norm = np.fft.fftshift(np.fft.fftfreq(fft_size, d=1.0))
-        
+        fft_raw = sp_fft.fft(x_win, n=fft_size)
+        fft_shifted = sp_fft.fftshift(fft_raw)
+        freq_norm = sp_fft.fftshift(sp_fft.fftfreq(fft_size, d=1.0))
+
         if normalization == "coherent":
             scale = 1.0 / (seg_len * s1)
             complex_spectrum = fft_shifted * scale
-            magnitude = np.abs(complex_spectrum)
-            power_linear = magnitude ** 2
-        else: # power
+            power_linear = complex_spectrum.real ** 2 + complex_spectrum.imag ** 2
+            magnitude = np.sqrt(power_linear)
+        else:  # power
             scale = 1.0 / np.sqrt(seg_len * s2)
             complex_spectrum = fft_shifted * scale
-            power_linear = (np.abs(fft_shifted) ** 2) / (seg_len * s2)
+            power_linear = (fft_shifted.real ** 2 + fft_shifted.imag ** 2) / (seg_len * s2)
             magnitude = np.sqrt(power_linear)
 
         is_two_sided = True
     else:
         # Real signal: compute rfft (one-sided [0, 0.5])
-        fft_raw = np.fft.rfft(x_win.real, n=fft_size)
+        fft_raw = sp_fft.rfft(x_win.real, n=fft_size)
         complex_spectrum = None
-        freq_norm = np.fft.rfftfreq(fft_size, d=1.0)
-        
+        freq_norm = sp_fft.rfftfreq(fft_size, d=1.0)
+
+        raw_sq = fft_raw.real ** 2 + fft_raw.imag ** 2
         if normalization == "coherent":
             scale = 1.0 / (seg_len * s1)
-            magnitude = np.abs(fft_raw) * scale
-            # Double non-DC/Nyquist components for one-sided representation
+            magnitude = np.sqrt(raw_sq) * scale
             if len(magnitude) > 2:
                 magnitude[1:-1] *= np.sqrt(2.0)
             power_linear = magnitude ** 2
         else:
-            power_linear = (np.abs(fft_raw) ** 2) / (seg_len * s2)
+            power_linear = raw_sq / (seg_len * s2)
             if len(power_linear) > 2:
                 power_linear[1:-1] *= 2.0
             magnitude = np.sqrt(power_linear)
-            
+
         is_two_sided = False
 
     # Compute dB spectrum with scientific floor

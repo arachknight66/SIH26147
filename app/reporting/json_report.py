@@ -29,18 +29,40 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
         "bandwidth_hz": p2.bandwidth_candidates[0].occupied_bandwidth_hz if (p2 and p2.bandwidth_candidates) else None,
         "noise_floor_db": p2.noise_estimate.noise_floor_db if p2 else None,
         "detected_regions_count": len(p2.detected_regions) if p2 else 0,
+        "activity": {
+            "duty_cycle": p2.activity_metrics.duty_cycle if (p2 and p2.activity_metrics) else None,
+            "burst_count": p2.activity_metrics.burst_count if (p2 and p2.activity_metrics) else None,
+            "active_sample_count": p2.activity_metrics.active_sample_count if (p2 and p2.activity_metrics) else None,
+            "method": p2.activity_metrics.method if (p2 and p2.activity_metrics) else None,
+            "evidence": p2.activity_metrics.evidence if (p2 and p2.activity_metrics) else None,
+        },
     }
 
     # Modulation hypotheses section
     p3_data = {
         "winner": p3.selected_hypothesis.label if (p3 and p3.selected_hypothesis) else None,
         "winner_score": p3.selected_hypothesis.score if (p3 and p3.selected_hypothesis) else None,
+        "is_ambiguous": p3.is_ambiguous if p3 else False,
+        "is_unknown": p3.is_unknown if p3 else True,
+        "window_consistency": p3.window_consistency if p3 else None,
         "hypotheses": [
             {
                 "label": h.label,
                 "score": round(h.score, 4),
                 "family": h.family.value,
                 "order": h.order,
+                "status": h.status.value,
+                "quality": h.quality,
+                "evidence": {
+                    "amplitude": h.evidence.amplitude_score,
+                    "phase": h.evidence.phase_score,
+                    "frequency": h.evidence.frequency_score,
+                    "cumulants": h.evidence.cumulant_score,
+                    "spectral": h.evidence.spectral_score,
+                    "periodicity": h.evidence.periodicity_score,
+                    "contradiction_penalty": h.evidence.contradiction_penalty,
+                    "supporting_notes": list(h.evidence.supporting_evidence),
+                },
             }
             for h in (p3.hypotheses if p3 else [])
         ],
@@ -52,17 +74,43 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
         "evm_percent": p4.recovered_signal.evm_percent if (p4 and p4.recovered_signal) else None,
         "cfo_normalized": p4.recovered_signal.cfo_normalized if (p4 and p4.recovered_signal) else None,
         "samples_per_symbol": p4.recovered_signal.samples_per_symbol if (p4 and p4.recovered_signal) else None,
+        "quality": {
+            "composite_score": p4.selected_candidate.quality.composite_score if (p4 and p4.selected_candidate) else None,
+            "quality_level": p4.selected_candidate.quality.quality_level.value if (p4 and p4.selected_candidate) else None,
+            "evm_score": p4.selected_candidate.quality.evm_score if (p4 and p4.selected_candidate) else None,
+            "timing_lock_score": p4.selected_candidate.quality.timing_lock_score if (p4 and p4.selected_candidate) else None,
+            "carrier_lock_score": p4.selected_candidate.quality.carrier_lock_score if (p4 and p4.selected_candidate) else None,
+            "window_consistency_score": p4.selected_candidate.quality.window_consistency_score if (p4 and p4.selected_candidate) else None,
+        },
+        "synchronization": {
+            "is_locked": p4.selected_candidate.synchronization.is_locked if (p4 and p4.selected_candidate and p4.selected_candidate.synchronization) else None,
+            "coarse_cfo_normalized": p4.selected_candidate.synchronization.frequency.coarse_cfo_normalized if (p4 and p4.selected_candidate and p4.selected_candidate.synchronization) else None,
+            "residual_cfo_normalized": p4.selected_candidate.synchronization.frequency.residual_cfo_normalized if (p4 and p4.selected_candidate and p4.selected_candidate.synchronization) else None,
+        },
     }
 
     # Data recovery section
     sel_cand = p5.selected_candidate if p5 else None
     p5_data = {
         "status": p5.status.value if p5 else "unknown",
+        "quality_level": p5.quality_level.value if p5 else None,
+        "is_ambiguous": p5.is_ambiguous if p5 else False,
         "frames_recovered": len(sel_cand.frames) if sel_cand else 0,
         "fec_code": sel_cand.fec.code_name if (sel_cand and sel_cand.fec) else "NONE",
         "fec_corrected_bits": sel_cand.fec_decode.corrected_bit_count if (sel_cand and sel_cand.fec_decode) else 0,
         "crc_name": sel_cand.integrity.crc_results[0].crc_name if (sel_cand and sel_cand.integrity and sel_cand.integrity.crc_results) else "NONE",
         "payload_bytes_length": len(sel_cand.recovered_payload_bytes) if sel_cand else 0,
+        "candidate": {
+            "composite_score": sel_cand.composite_score if sel_cand else None,
+            "complexity_penalty": sel_cand.complexity_penalty if sel_cand else None,
+            "phase_rotation_deg": sel_cand.bit_hypothesis.phase_rotation_deg if sel_cand else None,
+            "polarity": sel_cand.bit_hypothesis.polarity.value if sel_cand else None,
+            "bit_offset": sel_cand.bit_hypothesis.bit_offset if sel_cand else None,
+            "preamble_hex": sel_cand.preamble.pattern_hex if (sel_cand and sel_cand.preamble) else None,
+            "preamble_periodic": sel_cand.preamble.is_periodic if (sel_cand and sel_cand.preamble) else None,
+            "crc_valid_fraction": sel_cand.integrity.crc_valid_fraction if (sel_cand and sel_cand.integrity) else None,
+            "corrected_bit_count": sel_cand.fec_decode.corrected_bit_count if (sel_cand and sel_cand.fec_decode) else 0,
+        },
     }
 
     # Verification section
