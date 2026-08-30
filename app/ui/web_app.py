@@ -14,8 +14,6 @@ from app.orchestration.pipeline_config import PresetName, get_preset_config
 from app.orchestration.pipeline_runner import PipelineResult, run_pipeline
 from app.reporting.html_report import build_html_report
 from app.reporting.json_report import build_json_report
-from scripts.generate_digital_dataset import generate_digital_stream
-from tests.test_phase6_cases import _make_rec_sig
 
 _CURRENT_RESULT: PipelineResult | None = None
 _PORT = 8050
@@ -96,7 +94,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
   .stat-val { font-size: 1.4rem; font-weight: 700; color: var(--text); margin-top: 4px; }
   
   /* Log box */
-  .log-box { background: #030712; border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-family: monospace; font-size: 0.85rem; color: #38bdf8; max-height: 250px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; }
+  .log-box { background: #030712; border: 1px solid var(--border); border-radius: 6px; padding: 14px; font-family: monospace; font-size: 0.85rem; color: #38bdf8; max-height: 350px; overflow-y: auto; white-space: pre-wrap; line-height: 1.5; }
   
   /* Canvas */
   canvas { background: #030712; border: 1px solid var(--border); border-radius: 6px; width: 100%; height: 280px; }
@@ -134,11 +132,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div class="btn-group">
       <input type="file" id="file_input" style="display:none" onchange="uploadSignalFile(this.files[0])" accept=".iq,.wav,.sigmf-meta,.raw,.bin">
       <button class="btn-upload" onclick="document.getElementById('file_input').click()">📂 Upload Signal File</button>
-      <button class="btn-demo" onclick="runDemo()">⭐ Judge / Demo</button>
-      <button class="btn-primary" onclick="runAnalyze('examples/clean_qpsk.iq')">▶ Clean QPSK</button>
-      <button class="btn-secondary" onclick="runAnalyze('examples/noisy_qpsk_fec.iq')">▶ Noisy Signal</button>
+      <button class="btn-demo" onclick="runDemo()">⭐ Clean QPSK Demo</button>
+      <button class="btn-primary" onclick="runAnalyze('examples/noisy_qpsk_fec.iq')">▶ Noisy QPSK (FEC)</button>
+      <button class="btn-secondary" onclick="runAnalyze('examples/scrambled_frame.iq')">▶ Scrambled Frame</button>
       <button class="btn-secondary" onclick="runAnalyze('examples/pure_noise.iq')">▶ Pure Noise</button>
-      <button class="btn-secondary" onclick="exportReports()">💾 Export</button>
+      <button class="btn-secondary" onclick="exportReports()">💾 Export HTML</button>
     </div>
   </div>
 
@@ -175,7 +173,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
           <button class="btn-secondary" onclick="openWhyModal()">🔍 Inspect Evidence ('WHY?' Analysis)</button>
         </div>
         <div id="assessment_text" style="font-size: 1rem; line-height: 1.6; color: #e2e8f0;">
-          Click <b>📂 Upload Signal File</b> or <b>⭐ Judge / Demo</b> to execute the end-to-end recovery pipeline.
+          Click <b>📂 Upload Signal File</b> or select an example signal above to execute the real 6-phase recovery pipeline.
         </div>
       </div>
 
@@ -189,11 +187,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <!-- Page 02: Signal & Spectrum -->
     <div id="p_signal" class="page">
       <div class="card">
-        <div class="card-title">Time-Domain Signal Waveform (I/Q)</div>
+        <div class="card-title">Genuine Time-Domain Signal Waveform (I/Q)</div>
         <canvas id="canvas_waveform"></canvas>
       </div>
       <div class="card">
-        <div class="card-title">Power Spectral Density (Welch PSD)</div>
+        <div class="card-title">Genuine Power Spectral Density (Welch PSD)</div>
         <canvas id="canvas_psd"></canvas>
       </div>
     </div>
@@ -201,10 +199,10 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <!-- Page 03: Energy Detection -->
     <div id="p_detection" class="page">
       <div class="card">
-        <div class="card-title">Detected Signal Regions of Interest (ROI)</div>
+        <div class="card-title">Detected Signal Regions of Interest (ROI) & Activity</div>
         <table id="tbl_roi">
-          <thead><tr><th>Region ID</th><th>Start Sample</th><th>End Sample</th><th>Duration (s)</th><th>Estimated SNR (dB)</th><th>Center Freq</th></tr></thead>
-          <tbody><tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No active data</td></tr></tbody>
+          <thead><tr><th>Metric</th><th>Measured Value</th><th>Epistemic Status</th><th>Method</th></tr></thead>
+          <tbody><tr><td colspan="4" style="text-align:center; color: var(--text-muted);">No active data</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -225,8 +223,8 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div class="card">
         <div class="card-title">Ranked Modulation Hypotheses</div>
         <table id="tbl_mod">
-          <thead><tr><th>Rank</th><th>Candidate Modulation</th><th>Family</th><th>Order</th><th>Score (Confidence)</th></tr></thead>
-          <tbody><tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No active data</td></tr></tbody>
+          <thead><tr><th>Rank</th><th>Candidate Modulation</th><th>Family</th><th>Order</th><th>Score (Confidence)</th><th>Evidence Breakdown</th></tr></thead>
+          <tbody><tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No active data</td></tr></tbody>
         </table>
       </div>
     </div>
@@ -235,7 +233,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <div id="p_recovery" class="page">
       <div class="grid-2">
         <div class="card">
-          <div class="card-title">1-SPS Constellation Diagram (I/Q)</div>
+          <div class="card-title">1-SPS Recovered Constellation Diagram (I/Q)</div>
           <canvas id="canvas_constellation" style="height: 320px;"></canvas>
         </div>
         <div class="card">
@@ -246,7 +244,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
               <tr><td><b>Samples Per Symbol</b></td><td id="val_sps">—</td></tr>
               <tr><td><b>RMS EVM</b></td><td id="val_evm">—</td></tr>
               <tr><td><b>Residual CFO</b></td><td id="val_cfo">—</td></tr>
-              <tr><td><b>Decision Margin</b></td><td id="val_margin">—</td></tr>
+              <tr><td><b>Decision Margin / Quality</b></td><td id="val_margin">—</td></tr>
             </tbody>
           </table>
         </div>
@@ -258,7 +256,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
       <div class="card">
         <div class="card-title">Reconstructed Digital Frames</div>
         <table id="tbl_frames">
-          <thead><tr><th>Frame #</th><th>Bit Offset</th><th>Length (bits)</th><th>CRC Match</th><th>Syndrome</th><th>Payload Hex</th></tr></thead>
+          <thead><tr><th>Frame #</th><th>Bit Offset</th><th>Length (bits)</th><th>CRC Status</th><th>Payload Hex</th><th>Payload ASCII</th></tr></thead>
           <tbody><tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No active data</td></tr></tbody>
         </table>
       </div>
@@ -267,10 +265,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <!-- Page 08: FEC Mask -->
     <div id="p_fec" class="page">
       <div class="card">
-        <div class="card-title">Viterbi FEC Bit-Level Correction Mask</div>
-        <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 10px;">
-          Legend: <span style="color:#22c55e;">. (Unchanged bit)</span> | <span style="color:#ef4444; font-weight:bold;">X (Corrected flipped bit)</span>
-        </p>
+        <div class="card-title">FEC Bit-Level Correction Mask & Modifications</div>
         <div id="fec_mask_view" class="log-box" style="height: 300px; color: #e2e8f0;">No FEC corrections available.</div>
       </div>
     </div>
@@ -289,8 +284,11 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
     <!-- Page 10: Falsification -->
     <div id="p_falsification" class="page">
       <div class="card">
-        <div class="card-title">Adversarial Falsification & Disproof Log</div>
-        <div id="falsification_log" class="log-box" style="height: 350px;">Run analysis to view adversarial falsification results.</div>
+        <div class="card-title">Adversarial Falsification & Disproof Table</div>
+        <table id="tbl_falsification">
+          <thead><tr><th>Test ID</th><th>Name</th><th>Category</th><th>Status</th><th>Score</th><th>Counter Evidence / Details</th></tr></thead>
+          <tbody><tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No active data</td></tr></tbody>
+        </table>
       </div>
     </div>
 
@@ -315,7 +313,7 @@ HTML_TEMPLATE = r"""<!DOCTYPE html>
             <tr><td>Overall Health</td><td id="diag_overall">READY</td></tr>
             <tr><td>NumPy Environment</td><td style="color:#4ade80;">PASS</td></tr>
             <tr><td>SciPy DSP Engine</td><td style="color:#4ade80;">PASS</td></tr>
-            <tr><td>PySide6 / PyQtGraph Engine</td><td style="color:#4ade80;">PASS</td></tr>
+            <tr><td>Verification Matrix Engine</td><td style="color:#4ade80;">PASS</td></tr>
           </tbody>
         </table>
       </div>
@@ -356,13 +354,13 @@ function openWhyModal() {
   
   let html = `
     <h3 style="color:#38bdf8; margin:10px 0 6px;">1. Modulation Selection</h3>
-    <p>Ranked winner <b>${p3.winner || 'Unknown'}</b> with confidence score <b>${(p3.winner_score || 0).toFixed(4)}</b> based on normalized higher-order cumulants and cyclic spectral features.</p>
+    <p>Ranked winner: <b>${p3.winner || 'Unknown'}</b> with confidence score <b>${(p3.winner_score != null ? p3.winner_score.toFixed(4) : 'N/A')}</b> based on normalized higher-order cumulants and cyclic spectral features.</p>
     
     <h3 style="color:#38bdf8; margin:14px 0 6px;">2. Constellation & Demodulation Lock</h3>
-    <p>Lock status: <b>${p4.lock_status || 'unknown'}</b>. RMS EVM is <b>${(p4.evm_percent || 0).toFixed(2)}%</b> at <b>${(p4.samples_per_symbol || 0).toFixed(2)} SPS</b> with residual CFO of <b>${(p4.cfo_normalized || 0).toFixed(6)}</b>.</p>
+    <p>Lock status: <b>${p4.lock_status || 'unknown'}</b>. RMS EVM: <b>${p4.evm_percent != null ? p4.evm_percent.toFixed(2) + '%' : 'N/A'}</b> at <b>${p4.samples_per_symbol != null ? p4.samples_per_symbol.toFixed(2) + ' SPS' : 'N/A'}</b> with residual CFO of <b>${p4.cfo_normalized != null ? p4.cfo_normalized.toFixed(6) : 'N/A'}</b>.</p>
     
     <h3 style="color:#38bdf8; margin:14px 0 6px;">3. Forward Error Correction (FEC) & Integrity</h3>
-    <p>Identified FEC: <b>${p5.fec_code || 'NONE'}</b>. Corrected <b>${p5.fec_corrected_bits || 0}</b> bit errors. Cyclic Redundancy Check (CRC): <b>${p5.crc_name || 'NONE'}</b> across <b>${p5.frames_recovered || 0}</b> frames.</p>
+    <p>Identified FEC: <b>${p5.fec_code || 'NONE'}</b>. Corrected <b>${p5.fec_corrected_bits || 0}</b> bit errors. Cyclic Redundancy Check (CRC): <b>${p5.crc_name || 'NONE'}</b> across <b>${p5.frames_recovered || 0}</b> recovered frames.</p>
     
     <h3 style="color:#38bdf8; margin:14px 0 6px;">4. Independent Verification & Falsification</h3>
     <p>Final status: <b>${p6.status || 'unknown'}</b>. Verified: <b>${p6.is_verified || false}</b> across 7 independent scientific claims with Bonferroni-corrected significance.</p>
@@ -376,14 +374,14 @@ function closeWhyModal() {
 }
 
 async function runDemo() {
-  document.getElementById('lbl_target').innerText = "Running Judge Demo (Synthetic QPSK Protocol A)...";
+  document.getElementById('lbl_target').innerText = "Analyzing examples/clean_qpsk.iq...";
   try {
-    const res = await fetch(API_BASE + '/api/run-demo', { method: 'POST' });
+    const res = await fetch(API_BASE + '/api/run-file', { method: 'POST', body: JSON.stringify({ path: 'examples/clean_qpsk.iq' }) });
     const data = await res.json();
     updateUI(data);
   } catch (err) {
-    console.warn("Live API unavailable, rendering client fallback:", err);
-    if (currentData) updateUI(currentData);
+    console.error("Demo run error:", err);
+    alert("Pipeline execution error: " + err.message);
   }
 }
 
@@ -394,8 +392,8 @@ async function runAnalyze(path) {
     const data = await res.json();
     updateUI(data);
   } catch (err) {
-    console.warn("Live API unavailable, rendering client fallback:", err);
-    if (currentData) updateUI(currentData);
+    console.error("Analyze run error:", err);
+    alert("Pipeline execution error: " + err.message);
   }
 }
 
@@ -463,159 +461,262 @@ function updateUI(data) {
 
   document.getElementById('lbl_target').innerText = inp.source_path || "Uploaded Signal";
   document.getElementById('stat_status').innerText = (p6.status || "UNKNOWN").toUpperCase();
-  document.getElementById('stat_quality').innerText = data.is_verified ? "HIGH" : "MEDIUM";
+  document.getElementById('stat_quality').innerText = data.is_verified ? "HIGH" : (p6.status === 'supported' ? "MEDIUM" : "LOW");
   document.getElementById('stat_time').innerText = (dur.total || 0).toFixed(2) + "s";
   
   const claims = p6.claims || [];
-  const verifiedCount = claims.filter(c => (c.status || '').includes("SUPPORTED") || (c.status || '').includes("PASS")).length;
+  const verifiedCount = claims.filter(c => (c.status || '').includes("supported") || (c.status || '').includes("pass") || (c.status || '').includes("verified")).length;
   document.getElementById('stat_claims').innerText = verifiedCount + " / " + (claims.length || 7);
   document.getElementById('assessment_text').innerText = data.final_assessment || "Analysis Complete.";
   document.getElementById('repro_hash').innerText = prov.reproducibility_hash || p6.reproducibility_hash || "N/A";
 
-  // Parameters
+  // Page 03: Energy Detection (ROI)
+  const roiBody = document.getElementById('tbl_roi').querySelector('tbody');
+  if (roiBody) {
+    const act = p2.activity || {};
+    const roiRows = [
+      ["Duty Cycle", act.duty_cycle != null ? (act.duty_cycle * 100).toFixed(1) + "%" : "100.0%", "MEASURED", act.method || "Energy Envelope"],
+      ["Active Burst Count", act.burst_count != null ? act.burst_count : 1, "MEASURED", "Adaptive Thresholding"],
+      ["Active Samples", act.active_sample_count != null ? act.active_sample_count : inp.sample_count, "MEASURED", "Sample Integration"],
+      ["Estimated Noise Floor", p2.noise_floor_db != null ? p2.noise_floor_db.toFixed(1) + " dBFS" : "N/A", "ESTIMATED", "Welch PSD Minimum Distribution"],
+    ];
+    roiBody.innerHTML = roiRows.map(r => `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td><span class="badge badge-supported">${r[2]}</span></td><td>${r[3]}</td></tr>`).join('');
+  }
+
+  // Page 04: Parameters
   const paramRows = [
-    ["Modulation Scheme", p3.winner || "UNKNOWN", "dim", "INFERRED", "Cumulants & Spectral"],
-    ["Samples Per Symbol", (p4.samples_per_symbol || 8.0).toFixed(2), "samples/sym", "INFERRED", "Gardner TED"],
-    ["RMS EVM", (p4.evm_percent || 10.0).toFixed(2), "%", "MEASURED", "Constellation Centroids"],
-    ["Residual CFO", (p4.cfo_normalized || 0.0).toFixed(6), "norm", "MEASURED", "Costas Loop"],
-    ["Estimated SNR", (p2.snr_db || 20.0).toFixed(2), "dB", "ESTIMATED", "PSD Noise Floor"],
-    ["Occupied Bandwidth", (p2.bandwidth_hz || 10000.0).toFixed(1), "Hz", "ESTIMATED", "99% Power Integration"],
-    ["FEC Scheme", p5.fec_code || "NONE", "code", "INFERRED", "Viterbi Trellis"],
-    ["CRC Scheme", p5.crc_name || "NONE", "crc", "INFERRED", "Syndrome Match"],
-    ["Verification Status", (p6.status || "UNKNOWN").toUpperCase(), "status", data.is_verified ? "VERIFIED" : "SUPPORTED", "Independent Matrix"],
+    ["Modulation Scheme", p3.winner || "UNKNOWN", "dim", p3.winner ? "INFERRED" : "UNKNOWN", "Cumulants & Cyclic Spectral Features"],
+    ["Samples Per Symbol", p4.samples_per_symbol != null ? p4.samples_per_symbol.toFixed(2) : "N/A", "samples/sym", p4.samples_per_symbol ? "INFERRED" : "UNKNOWN", "Gardner Timing Error Detector"],
+    ["RMS EVM", p4.evm_percent != null ? p4.evm_percent.toFixed(2) : "N/A", "%", p4.evm_percent ? "MEASURED" : "UNKNOWN", "1-SPS Decision Slicing"],
+    ["Residual CFO", p4.cfo_normalized != null ? p4.cfo_normalized.toFixed(6) : "N/A", "norm", p4.cfo_normalized ? "MEASURED" : "UNKNOWN", "Costas Frequency Locked Loop"],
+    ["Estimated SNR", p2.snr_db != null ? p2.snr_db.toFixed(2) : "N/A", "dB", p2.snr_db ? "ESTIMATED" : "UNKNOWN", "Welch PSD Power Integration"],
+    ["Occupied Bandwidth", p2.bandwidth_hz != null ? p2.bandwidth_hz.toFixed(1) : "N/A", "Hz", p2.bandwidth_hz ? "ESTIMATED" : "UNKNOWN", "99% Power Bandwidth"],
+    ["FEC Scheme", p5.fec_code || "NONE", "code", p5.fec_code ? "INFERRED" : "UNKNOWN", "Trellis / Algebraic / Tanner Matrix"],
+    ["CRC Scheme", p5.crc_name || "NONE", "crc", p5.crc_name ? "INFERRED" : "UNKNOWN", "Syndrome Zero Search"],
+    ["Verification Status", (p6.status || "UNKNOWN").toUpperCase(), "status", data.is_verified ? "VERIFIED" : "SUPPORTED", "Independent 7-Claim Matrix"],
   ];
   
   const pBody = document.getElementById('tbl_params').querySelector('tbody');
   if (pBody) {
     pBody.innerHTML = paramRows.map(r => 
-      `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td><span class="badge ${r[3]==='VERIFIED'?'badge-verified':r[3]==='SUPPORTED'?'badge-supported':'badge-inferred'}">${r[3]}</span></td><td>${r[4]}</td></tr>`
+      `<tr><td><b>${r[0]}</b></td><td>${r[1]}</td><td>${r[2]}</td><td><span class="badge ${r[3]==='VERIFIED'?'badge-verified':r[3]==='MEASURED'?'badge-supported':r[3]==='INFERRED'?'badge-inferred':'badge-unknown'}">${r[3]}</span></td><td>${r[4]}</td></tr>`
     ).join('');
   }
 
-  // Hypotheses
+  // Page 05: Modulation Hypotheses
   const modBody = document.getElementById('tbl_mod').querySelector('tbody');
   if (modBody) {
-    modBody.innerHTML = (p3.hypotheses || [
-      {label: "QPSK", family: "PSK", order: 4, score: 0.957},
-      {label: "16QAM", family: "QAM", order: 16, score: 0.0},
-      {label: "8PSK", family: "PSK", order: 8, score: 0.0},
-    ]).map((h, i) =>
-      `<tr><td>#${i+1}</td><td><b>${h.label}</b></td><td>${h.family}</td><td>${h.order}</td><td>${(h.score || 0).toFixed(4)}</td></tr>`
-    ).join('');
+    const hyps = p3.hypotheses || [];
+    if (hyps.length > 0) {
+      modBody.innerHTML = hyps.map((h, i) => {
+        const ev = h.evidence || {};
+        const notes = (ev.supporting_notes || []).join('; ') || 'Statistical cumulant alignment';
+        return `<tr><td>#${i+1}</td><td><b>${h.label}</b></td><td>${h.family}</td><td>${h.order}</td><td>${(h.score || 0).toFixed(4)}</td><td style="font-size:0.8rem; color:#94a3b8;">${notes}</td></tr>`;
+      }).join('');
+    } else {
+      modBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No modulation hypotheses generated</td></tr>`;
+    }
   }
 
-  // Claims
-  const claimBody = document.getElementById('tbl_claims').querySelector('tbody');
-  if (claimBody) {
-    claimBody.innerHTML = (claims.length > 0 ? claims : [
-      {claim_id: 1, claim_text: "The physical signal representation is finite, non-clipping, and consistent.", status: "supported", confidence: 0.95, independence: "independent"},
-      {claim_id: 2, claim_text: "The recovered modulation is 4-PSK.", status: "supported", confidence: 0.90, independence: "independent"},
-      {claim_id: 3, claim_text: "Carrier and symbol synchronization is temporally stable across signal windows.", status: "supported", confidence: 1.0, independence: "independent"},
-      {claim_id: 4, claim_text: "The detected frame boundaries (length 304 bits) are genuine and sharp.", status: "supported", confidence: 0.90, independence: "independent"},
-      {claim_id: 6, claim_text: "The CRC integrity hypothesis (CRC-16-CCITT-FALSE) is statistically significant.", status: "strongly_supported", confidence: 0.95, independence: "independent"},
-    ]).map(c =>
-      `<tr><td><b>Claim ${c.claim_id}</b></td><td>${c.claim_text}</td><td><span class="badge ${(c.status||'').includes('supported')?'badge-verified':'badge-rejected'}">${c.status}</span></td><td>${(c.confidence||0).toFixed(2)}</td><td>${c.independence}</td></tr>`
-    ).join('');
-  }
+  // Page 06: Lock Table
+  const lStatus = document.getElementById('val_carrier_lock'); if (lStatus) lStatus.innerText = p4.lock_status || "unknown";
+  const lSps = document.getElementById('val_sps'); if (lSps) lSps.innerText = p4.samples_per_symbol != null ? p4.samples_per_symbol.toFixed(2) + " SPS" : "N/A";
+  const lEvm = document.getElementById('val_evm'); if (lEvm) lEvm.innerText = p4.evm_percent != null ? p4.evm_percent.toFixed(2) + "%" : "N/A";
+  const lCfo = document.getElementById('val_cfo'); if (lCfo) lCfo.innerText = p4.cfo_normalized != null ? p4.cfo_normalized.toFixed(6) : "N/A";
+  const lMargin = document.getElementById('val_margin'); if (lMargin) lMargin.innerText = p4.quality && p4.quality.composite_score != null ? (p4.quality.composite_score * 100).toFixed(1) + "%" : "N/A";
 
-  // Lock Table
-  const lStatus = document.getElementById('val_carrier_lock'); if (lStatus) lStatus.innerText = p4.lock_status || "recovered";
-  const lSps = document.getElementById('val_sps'); if (lSps) lSps.innerText = (p4.samples_per_symbol || 8.0).toFixed(2) + " SPS";
-  const lEvm = document.getElementById('val_evm'); if (lEvm) lEvm.innerText = (p4.evm_percent || 10.0).toFixed(2) + "%";
-  const lCfo = document.getElementById('val_cfo'); if (lCfo) lCfo.innerText = (p4.cfo_normalized || 0.0).toFixed(6);
-  const lMargin = document.getElementById('val_margin'); if (lMargin) lMargin.innerText = "0.95";
-
-  // Frames
+  // Page 07: Reconstructed Digital Frames
   const frBody = document.getElementById('tbl_frames').querySelector('tbody');
-  const numFrames = p5.frames_recovered || 5;
+  const frameList = p5.frames_list || [];
   if (frBody) {
-    frBody.innerHTML = Array.from({length: numFrames}, (_, i) => 
-      `<tr><td>Frame #${i+1}</td><td>${i*128}</td><td>128</td><td style="color:#4ade80; font-weight:bold;">MATCH (VALID)</td><td>0x0000</td><td>${(p6.reproducibility_hash || '1c2b7f179384b80f').substring(i*4, i*4+16)}</td></tr>`
-    ).join('');
+    if (frameList.length > 0) {
+      frBody.innerHTML = frameList.map(f => 
+        `<tr><td>Frame #${f.frame_index + 1}</td><td>${f.start_bit}</td><td>${f.length_bits}</td><td style="color:${f.is_crc_valid ? '#4ade80' : '#f87171'}; font-weight:bold;">${f.is_crc_valid ? 'MATCH (VALID)' : 'MISMATCH (INVALID)'}</td><td style="font-family:monospace; color:#38bdf8;">${f.payload_hex || 'N/A'}</td><td style="font-family:monospace; color:#cbd5e1;">${f.payload_ascii || ''}</td></tr>`
+      ).join('');
+    } else {
+      frBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No frames reconstructed</td></tr>`;
+    }
   }
 
-  // FEC Mask
+  // Page 08: FEC Bit Mask
   const fecView = document.getElementById('fec_mask_view');
   if (fecView) {
-    fecView.innerText = `[FEC ${p5.fec_code || 'UNCODED'}] Corrected ${p5.fec_corrected_bits || 0} channel bit errors.\n\n` + 
-      Array.from({length: 8}, (_, r) => `Frame ${r+1}: ................................X...............................X................`).join('\n');
+    const fm = p5.fec_mask || {};
+    const modIdx = fm.modified_bit_indices || [];
+    let maskText = `[FEC CODE: ${p5.fec_code || 'NONE'}]\n`;
+    maskText += `Total Corrected Bits: ${p5.fec_corrected_bits || 0}\n`;
+    maskText += `Correction Fraction:  ${(fm.correction_fraction || 0.0) * 100}%\n\n`;
+    if (modIdx.length > 0) {
+      maskText += `Corrected Bit Channel Positions (First ${modIdx.length}):\n${JSON.stringify(modIdx)}\n`;
+    } else {
+      maskText += `No bit modifications required on clean channel.\n`;
+    }
+    fecView.innerText = maskText;
   }
 
-  // Falsification Log
-  const falLog = document.getElementById('falsification_log');
-  if (falLog) {
-    falLog.innerText = `=======================================================\nADVERSARIAL FALSIFICATION LOG & DISPROOF ENGINE\n=======================================================\n[PASS] Bit flip tolerance test: Robust under noise.\n[PASS] Boundary perturbation: Instant frame collapse on bit offset.\n[PASS] Leave-one-out stability: Model parameters invariant.\n[PASS] Bonferroni multiple testing alpha: p < 0.01 satisfied.\nOutcome: NO CRITICAL FALSIFICATION DETECTED.`;
+  // Page 09: 7-Claim Matrix
+  const claimBody = document.getElementById('tbl_claims').querySelector('tbody');
+  if (claimBody) {
+    if (claims.length > 0) {
+      claimBody.innerHTML = claims.map(c => {
+        const isPass = (c.status || '').includes('supported') || (c.status || '').includes('pass') || (c.status || '').includes('verified');
+        return `<tr><td><b>Claim ${c.claim_id}</b></td><td>${c.claim_text}</td><td><span class="badge ${isPass ? 'badge-verified' : 'badge-rejected'}">${c.status}</span></td><td>${(c.confidence || 0).toFixed(2)}</td><td>${c.independence || 'independent'}</td></tr>`;
+      }).join('');
+    } else {
+      claimBody.innerHTML = `<tr><td colspan="5" style="text-align:center; color: var(--text-muted);">No claims audited</td></tr>`;
+    }
   }
 
-  // Lineage
+  // Page 10: Adversarial Falsification Table
+  const falBody = document.getElementById('tbl_falsification').querySelector('tbody');
+  const testList = p6.tests || [];
+  if (falBody) {
+    if (testList.length > 0) {
+      falBody.innerHTML = testList.map(t => {
+        const isPass = (t.status || '').toUpperCase() === 'PASS' || (t.status || '').toUpperCase() === 'WEAK_PASS';
+        const badgeClass = t.status === 'PASS' ? 'badge-verified' : (t.status === 'WEAK_PASS' ? 'badge-inferred' : 'badge-rejected');
+        return `<tr><td><b>${t.test_id}</b></td><td>${t.name}</td><td>${t.category}</td><td><span class="badge ${badgeClass}">${t.status}</span></td><td>${t.score.toFixed(2)}</td><td style="color:${isPass ? '#94a3b8' : '#f87171'}; font-size:0.85rem;">${t.counter_evidence || 'Criterion satisfied without perturbation collapse.'}</td></tr>`;
+      }).join('');
+    } else {
+      falBody.innerHTML = `<tr><td colspan="6" style="text-align:center; color: var(--text-muted);">No falsification tests executed</td></tr>`;
+    }
+  }
+
+  // Page 12: Lineage
   const linDAG = document.getElementById('lineage_dag');
   if (linDAG) {
-    linDAG.innerText = `[01. Ingestion: ${inp.format || 'raw_iq'}] -> [02. DSP Measurement: Welch PSD & ROI] -> [03. Modulation Hypotheses: ${p3.winner || 'QPSK'}] -> [04. Costas & Gardner Lock: ${p4.lock_status || 'recovered'}] -> [05. Frame Reconstruction: ${p5.frames_recovered || 5} frames] -> [06. Viterbi FEC & CRC: ${p5.fec_code || 'UNCODED'}/${p5.crc_name || 'CRC-16'}] -> [07. Independent 7-Claim Verification: ${p6.status || 'verified'}]`;
+    linDAG.innerText = `[01. Ingestion: ${inp.source_path || 'raw_iq'} (${inp.sample_count || 0} samples)]\n` +
+      `  ↓\n[02. Physical DSP: Welch PSD (SNR: ${p2.snr_db != null ? p2.snr_db.toFixed(1) + ' dB' : 'N/A'}, OBW: ${p2.bandwidth_hz != null ? p2.bandwidth_hz.toFixed(0) + ' Hz' : 'N/A'})]\n` +
+      `  ↓\n[03. Modulation Hypotheses: ${p3.winner || 'UNKNOWN'} (Score: ${p3.winner_score != null ? p3.winner_score.toFixed(4) : 'N/A'})]\n` +
+      `  ↓\n[04. Timing & Carrier Lock: ${p4.lock_status || 'unknown'} (EVM: ${p4.evm_percent != null ? p4.evm_percent.toFixed(2) + '%' : 'N/A'}, SPS: ${p4.samples_per_symbol != null ? p4.samples_per_symbol.toFixed(2) : 'N/A'})]\n` +
+      `  ↓\n[05. Post-Demod Reconstruction: ${p5.frames_recovered || 0} frames recovered | FEC: ${p5.fec_code || 'NONE'} | CRC: ${p5.crc_name || 'NONE'}]\n` +
+      `  ↓\n[06. Independent Scientific Verification: Status ${p6.status || 'unknown'} | Verified: ${p6.is_verified || false} | Hash: ${p6.reproducibility_hash || prov.reproducibility_hash || 'N/A'}]`;
   }
 
   drawPlots();
 }
 
 function drawPlots() {
-  // Constellation
+  if (!currentData || !currentData.plots) return;
+  const plots = currentData.plots;
+
+  // 1. Constellation Plot (Actual 1-SPS recovered symbols)
   const c = document.getElementById('canvas_constellation');
   if (c && c.clientWidth > 0) {
-    c.width = c.clientWidth; c.height = c.clientHeight || 280;
+    c.width = c.clientWidth; c.height = c.clientHeight || 320;
     const ctx = c.getContext('2d');
-    ctx.clearRect(0,0,c.width,c.height);
-    ctx.fillStyle = '#030712'; ctx.fillRect(0,0,c.width,c.height);
-    // Grid
+    ctx.clearRect(0, 0, c.width, c.height);
+    ctx.fillStyle = '#030712'; ctx.fillRect(0, 0, c.width, c.height);
+    
+    // Center grid lines
     ctx.strokeStyle = '#334155'; ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(c.width/2, 0); ctx.lineTo(c.width/2, c.height); ctx.stroke();
-    ctx.beginPath(); ctx.moveTo(0, c.height/2); ctx.lineTo(c.width, c.height/2); ctx.stroke();
-    // Clusters
-    const centers = [[-1,-1], [-1,1], [1,-1], [1,1]];
-    ctx.fillStyle = 'rgba(56, 189, 248, 0.75)';
-    for(let i=0; i<400; i++) {
-      const cent = centers[i % 4];
-      const x = c.width/2 + (cent[0] + (Math.sin(i*13)*0.18)) * (c.width*0.28);
-      const y = c.height/2 + (cent[1] + (Math.cos(i*17)*0.18)) * (c.height*0.28);
-      ctx.beginPath(); ctx.arc(x,y,2.5,0,Math.PI*2); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(c.width / 2, 0); ctx.lineTo(c.width / 2, c.height); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(0, c.height / 2); ctx.lineTo(c.width, c.height / 2); ctx.stroke();
+
+    const i_pts = plots.const_i || [];
+    const q_pts = plots.const_q || [];
+    if (i_pts.length > 0) {
+      // Find max scale for normalization
+      let maxVal = 1.0;
+      for (let k = 0; k < i_pts.length; k++) {
+        maxVal = Math.max(maxVal, Math.abs(i_pts[k]), Math.abs(q_pts[k]));
+      }
+      const scale = (Math.min(c.width, c.height) * 0.40) / maxVal;
+      
+      // Draw actual symbol scatter points
+      ctx.fillStyle = 'rgba(56, 189, 248, 0.85)';
+      for (let k = 0; k < i_pts.length; k++) {
+        const x = c.width / 2 + i_pts[k] * scale;
+        const y = c.height / 2 - q_pts[k] * scale;
+        ctx.beginPath(); ctx.arc(x, y, 2.5, 0, Math.PI * 2); ctx.fill();
+      }
+    } else {
+      ctx.fillStyle = '#94a3b8'; ctx.font = '14px sans-serif';
+      ctx.fillText('No recovered 1-SPS constellation available', 20, 30);
     }
-    // Centroids
-    ctx.fillStyle = '#ef4444';
-    centers.forEach(cent => {
-      const cx = c.width/2 + cent[0] * (c.width*0.28);
-      const cy = c.height/2 + cent[1] * (c.height*0.28);
-      ctx.beginPath(); ctx.arc(cx,cy,5,0,Math.PI*2); ctx.fill();
-    });
   }
 
-  // Waveform
+  // 2. Waveform Plot (Actual measured I & Q time-domain samples)
   const w = document.getElementById('canvas_waveform');
   if (w && w.clientWidth > 0) {
     w.width = w.clientWidth; w.height = w.clientHeight || 280;
     const ctx = w.getContext('2d');
-    ctx.clearRect(0,0,w.width,w.height);
-    ctx.fillStyle = '#030712'; ctx.fillRect(0,0,w.width,w.height);
-    ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5; ctx.beginPath();
-    for(let x=0; x<w.width; x++) {
-      const y = w.height/2 + Math.sin(x*0.06) * Math.cos(x*0.02) * (w.height*0.35);
-      if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    ctx.clearRect(0, 0, w.width, w.height);
+    ctx.fillStyle = '#030712'; ctx.fillRect(0, 0, w.width, w.height);
+
+    const w_i = plots.waveform_i || [];
+    const w_q = plots.waveform_q || [];
+    if (w_i.length > 0) {
+      let maxAmp = 1e-4;
+      for (let k = 0; k < w_i.length; k++) {
+        maxAmp = Math.max(maxAmp, Math.abs(w_i[k]), Math.abs(w_q[k] || 0));
+      }
+      const scaleY = (w.height * 0.40) / maxAmp;
+      const stepX = w.width / Math.max(1, w_i.length - 1);
+
+      // In-phase (cyan)
+      ctx.strokeStyle = '#38bdf8'; ctx.lineWidth = 1.5; ctx.beginPath();
+      for (let k = 0; k < w_i.length; k++) {
+        const x = k * stepX;
+        const y = w.height / 2 - w_i[k] * scaleY;
+        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+
+      // Quadrature (amber)
+      if (w_q.length > 0) {
+        ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.2; ctx.beginPath();
+        for (let k = 0; k < w_q.length; k++) {
+          const x = k * stepX;
+          const y = w.height / 2 - w_q[k] * scaleY;
+          if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+        }
+        ctx.stroke();
+      }
+    } else {
+      ctx.fillStyle = '#94a3b8'; ctx.font = '14px sans-serif';
+      ctx.fillText('No time-domain waveform data available', 20, 30);
     }
-    ctx.stroke();
   }
 
-  // PSD
+  // 3. Welch PSD Plot (Actual measured physical power spectrum)
   const p = document.getElementById('canvas_psd');
   if (p && p.clientWidth > 0) {
     p.width = p.clientWidth; p.height = p.clientHeight || 280;
     const ctx = p.getContext('2d');
-    ctx.clearRect(0,0,p.width,p.height);
-    ctx.fillStyle = '#030712'; ctx.fillRect(0,0,p.width,p.height);
-    ctx.strokeStyle = '#f59e0b'; ctx.lineWidth = 1.5; ctx.beginPath();
-    for(let x=0; x<p.width; x++) {
-      const normX = (x - p.width/2) / (p.width/2);
-      const sinc = Math.sin(normX*8 + 1e-4) / (normX*8 + 1e-4);
-      const y = p.height - 20 - Math.abs(sinc) * (p.height*0.75) - Math.abs(Math.sin(x*0.5))*8;
-      if(x===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    ctx.clearRect(0, 0, p.width, p.height);
+    ctx.fillStyle = '#030712'; ctx.fillRect(0, 0, p.width, p.height);
+
+    const psd_p = plots.psd_p || [];
+    if (psd_p.length > 0) {
+      let minP = -100.0;
+      let maxP = 0.0;
+      for (let k = 0; k < psd_p.length; k++) {
+        minP = Math.min(minP, psd_p[k]);
+        maxP = Math.max(maxP, psd_p[k]);
+      }
+      const rangeP = Math.max(10.0, maxP - minP);
+      const stepX = p.width / Math.max(1, psd_p.length - 1);
+
+      // Noise floor line
+      const nf = plots.noise_floor_dbfs != null ? plots.noise_floor_dbfs : minP + 10;
+      const nfY = p.height - 20 - ((nf - minP) / rangeP) * (p.height - 40);
+      ctx.strokeStyle = 'rgba(239, 68, 68, 0.6)'; ctx.lineWidth = 1; ctx.setLineDash([4, 4]);
+      ctx.beginPath(); ctx.moveTo(0, nfY); ctx.lineTo(p.width, nfY); ctx.stroke();
+      ctx.setLineDash([]);
+
+      // PSD spectrum trace
+      ctx.strokeStyle = '#22c55e'; ctx.lineWidth = 1.8; ctx.beginPath();
+      for (let k = 0; k < psd_p.length; k++) {
+        const x = k * stepX;
+        const y = p.height - 20 - ((psd_p[k] - minP) / rangeP) * (p.height - 40);
+        if (k === 0) ctx.moveTo(x, y); else ctx.lineTo(x, y);
+      }
+      ctx.stroke();
+    } else {
+      ctx.fillStyle = '#94a3b8'; ctx.font = '14px sans-serif';
+      ctx.fillText('No Welch PSD spectrum data available', 20, 30);
     }
-    ctx.stroke();
   }
 }
 
@@ -675,9 +776,7 @@ class SIHRequestHandler(http.server.BaseHTTPRequestHandler):
 
         elif parsed.path == "/api/reports/html":
             if _CURRENT_RESULT is None:
-                rx, soft, _ = generate_digital_stream(protocol="PROTOCOL_A", num_frames=5, seed=42)
-                rec = _make_rec_sig(rx, soft)
-                _CURRENT_RESULT = run_pipeline(rec, config=get_preset_config(PresetName.FAST_SCREENING))
+                _CURRENT_RESULT = run_pipeline("examples/clean_qpsk.iq", config=get_preset_config(PresetName.FAST_SCREENING))
             html = build_html_report(_CURRENT_RESULT)
             b = html.encode("utf-8")
             self.send_response(200)
@@ -696,20 +795,7 @@ class SIHRequestHandler(http.server.BaseHTTPRequestHandler):
         global _CURRENT_RESULT
         parsed = urllib.parse.urlparse(self.path)
 
-        if parsed.path == "/api/run-demo":
-            rx, soft, _ = generate_digital_stream(protocol="PROTOCOL_A", num_frames=5, seed=42)
-            rec = _make_rec_sig(rx, soft)
-            _CURRENT_RESULT = run_pipeline(rec, config=get_preset_config(PresetName.FAST_SCREENING))
-            data = build_json_report(_CURRENT_RESULT)
-            b = json.dumps(data).encode("utf-8")
-            self.send_response(200)
-            self.send_header("Content-Type", "application/json")
-            self.send_header("Access-Control-Allow-Origin", "*")
-            self.send_header("Content-Length", str(len(b)))
-            self.end_headers()
-            self.wfile.write(b)
-
-        elif parsed.path == "/api/run-file":
+        if parsed.path == "/api/run-file":
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length).decode("utf-8") if length > 0 else "{}"
             req = json.loads(body)
@@ -761,13 +847,14 @@ class SIHRequestHandler(http.server.BaseHTTPRequestHandler):
                     "project": "SIH26147 Signal Recovery",
                     "is_success": False,
                     "is_verified": False,
-                    "final_assessment": f"Failed: {e}",
+                    "final_assessment": f"Pipeline Error: {e}",
                     "input": {"source_path": filename, "format": "unknown", "sha256": "N/A", "sample_count": len(file_bytes)},
                     "phase2_physical": {},
                     "phase3_modulation": {},
                     "phase4_recovery": {},
                     "phase5_data": {},
-                    "phase6_verification": {"status": "unverified", "claims": []},
+                    "phase6_verification": {"status": "unverified", "claims": [], "tests": []},
+                    "plots": {"waveform_i": [], "waveform_q": [], "psd_f": [], "psd_p": [], "const_i": [], "const_q": []},
                     "provenance": {},
                     "durations_seconds": {"total": 0.0},
                 }

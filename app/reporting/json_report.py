@@ -1,11 +1,13 @@
 from __future__ import annotations
 import json
 from typing import Any
+import numpy as np
 from app.orchestration.pipeline_runner import PipelineResult
 
 def build_json_report(result: PipelineResult) -> dict[str, Any]:
     """
-    Construct a versioned schema v1.0 JSON-serializable dictionary from a PipelineResult.
+    Construct a versioned schema v1.0 JSON-serializable dictionary from a PipelineResult,
+    including genuine downsampled arrays for interactive visualization.
     """
     rec = result.input_recording
     p2 = result.phase2_result.output if (result.phase2_result and result.phase2_result.output) else None
@@ -91,6 +93,29 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
 
     # Data recovery section
     sel_cand = p5.selected_candidate if p5 else None
+    frames_list = []
+    if sel_cand and sel_cand.frames:
+        for f in sel_cand.frames:
+            payload_b = np.packbits(f.payload_bits).tobytes() if len(f.payload_bits) > 0 else (f.decoded_payload or b"")
+            frames_list.append({
+                "frame_index": f.frame_index,
+                "start_bit": f.start_bit,
+                "end_bit": f.end_bit,
+                "length_bits": len(f.raw_bits) if hasattr(f, "raw_bits") else (f.end_bit - f.start_bit),
+                "is_crc_valid": f.is_crc_valid,
+                "payload_hex": payload_b.hex(),
+                "payload_ascii": "".join(chr(b) if 32 <= b <= 126 else "." for b in payload_b),
+            })
+
+    fec_mask_info: dict[str, Any] = {}
+    if sel_cand and sel_cand.fec_decode:
+        fd = sel_cand.fec_decode
+        fec_mask_info = {
+            "corrected_bit_count": fd.corrected_bit_count,
+            "correction_fraction": round(fd.correction_fraction, 4),
+            "modified_bit_indices": [int(i) for i in np.where(fd.correction_mask)[0][:128]] if fd.correction_mask is not None else [],
+        }
+
     p5_data = {
         "status": p5.status.value if p5 else "unknown",
         "quality_level": p5.quality_level.value if p5 else None,
@@ -100,6 +125,8 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
         "fec_corrected_bits": sel_cand.fec_decode.corrected_bit_count if (sel_cand and sel_cand.fec_decode) else 0,
         "crc_name": sel_cand.integrity.crc_results[0].crc_name if (sel_cand and sel_cand.integrity and sel_cand.integrity.crc_results) else "NONE",
         "payload_bytes_length": len(sel_cand.recovered_payload_bytes) if sel_cand else 0,
+        "frames_list": frames_list,
+        "fec_mask": fec_mask_info,
         "candidate": {
             "composite_score": sel_cand.composite_score if sel_cand else None,
             "complexity_penalty": sel_cand.complexity_penalty if sel_cand else None,
@@ -114,6 +141,21 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
     }
 
     # Verification section
+    all_tests = []
+    if p6 and p6.claims:
+        for c in p6.claims:
+            for t in c.tests:
+                all_tests.append({
+                    "test_id": t.test_id,
+                    "name": t.name,
+                    "category": t.category,
+                    "status": t.status.value,
+                    "score": round(t.score, 4),
+                    "details": t.details,
+                    "counter_evidence": t.counter_evidence,
+                    "is_critical": t.is_critical,
+                })
+
     p6_data = {
         "status": p6.status.value if p6 else "unknown",
         "is_verified": p6.is_verified if p6 else False,
@@ -127,8 +169,45 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
             }
             for c in (p6.claims if p6 else [])
         ],
+        "tests": all_tests,
         "error_budget": p6.error_budget.__dict__ if (p6 and p6.error_budget) else None,
         "reproducibility_hash": p6.handoff.reproducibility_hash if (p6 and p6.handoff) else None,
+    }
+
+    # Genuine signal plotting data
+    waveform_i: list[float] = []
+    waveform_q: list[float] = []
+    if rec is not None and len(rec.samples) > 0:
+        step_w = max(1, len(rec.samples) // 500)
+        sub_samples = rec.samples[::step_w][:500]
+        waveform_i = [round(float(s.real), 4) for s in sub_samples]
+        waveform_q = [round(float(s.imag), 4) for s in sub_samples]
+
+    psd_f: list[float] = []
+    psd_p: list[float] = []
+    if p2 is not None and p2.psd is not None and len(p2.psd.psd_db) > 0:
+        step_p = max(1, len(p2.psd.psd_db) // 300)
+        sub_f = p2.psd.frequencies_normalized[::step_p][:300]
+        sub_p = p2.psd.psd_db[::step_p][:300]
+        psd_f = [round(float(f), 4) for f in sub_f]
+        psd_p = [round(float(p), 2) for p in sub_p]
+
+    const_i: list[float] = []
+    const_q: list[float] = []
+    if p4 is not None and p4.recovered_signal is not None and len(p4.recovered_signal.symbols) > 0:
+        step_c = max(1, len(p4.recovered_signal.symbols) // 600)
+        sub_syms = p4.recovered_signal.symbols[::step_c][:600]
+        const_i = [round(float(s.real), 4) for s in sub_syms]
+        const_q = [round(float(s.imag), 4) for s in sub_syms]
+
+    plots_data = {
+        "waveform_i": waveform_i,
+        "waveform_q": waveform_q,
+        "psd_f": psd_f,
+        "psd_p": psd_p,
+        "noise_floor_dbfs": p2.noise_estimate.noise_floor_db if (p2 and p2.noise_estimate) else -60.0,
+        "const_i": const_i,
+        "const_q": const_q,
     }
 
     # Provenance section
@@ -147,6 +226,7 @@ def build_json_report(result: PipelineResult) -> dict[str, Any]:
         "phase4_recovery": p4_data,
         "phase5_data": p5_data,
         "phase6_verification": p6_data,
+        "plots": plots_data,
         "provenance": prov_data,
         "durations_seconds": {
             "total": result.total_duration_seconds,

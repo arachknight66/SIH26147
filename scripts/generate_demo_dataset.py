@@ -14,7 +14,8 @@ def generate_demo_dataset(output_dir: str = "examples") -> dict[str, str]:
 
     def _save_raw_iq(filename: str, samples: np.ndarray, truth_info: dict) -> Path:
         iq_path = out / filename
-        samples.astype(np.complex64).tofile(iq_path)
+        with open(iq_path, "wb") as f:
+            f.write(samples.astype(np.complex64).tobytes())
         manifest_path = out / f"{filename}.manifest.json"
         with open(manifest_path, "w", encoding="utf-8") as f:
             json.dump(truth_info, f, indent=2)
