@@ -5,6 +5,7 @@ from .models import (
     DataQualityLevel,
     DataRecoveryStatus,
     EpistemicStatus,
+    FrameBoundary,
     Phase6Handoff,
     ReconstructionCandidate,
 )
@@ -121,9 +122,16 @@ def rank_and_select_reconstructions(
         raw_b = selected.bit_hypothesis.bitstream.hard_bits
         corr_b = selected.fec_decode.decoded_bits if selected.fec_decode else raw_b
         
-        # Frame boundaries tuple
         boundaries = tuple(
-            f.start_bit for f in selected.frames
+            FrameBoundary(
+                frame_index=f.frame_index,
+                start_bit=f.start_bit,
+                end_bit=f.end_bit,
+                length_bits=f.end_bit - f.start_bit,
+                preamble_match=bool(selected.preamble),
+                is_valid_interval=f.is_length_consistent,
+            )
+            for f in selected.frames
         )
 
         corr_masks = (selected.fec_decode.correction_mask,) if selected.fec_decode else ()
@@ -132,9 +140,13 @@ def rank_and_select_reconstructions(
             raw_bits=raw_b,
             corrected_bits=corr_b,
             payload_bytes=selected.recovered_payload_bytes,
-            frame_boundaries=(),
+            frame_boundaries=boundaries,
             fec_parameters={"code_name": selected.fec.code_name if selected.fec else "none"},
             scrambler_parameters={"scrambler_name": selected.scrambler.polynomial_name if selected.scrambler else "none"},
+            interleaver_parameters={
+                "interleaver_type": selected.interleaver.interleaver_type.value if selected.interleaver else "none",
+                "parameters": selected.interleaver.parameters if selected.interleaver else {},
+            },
             crc_parameters={"crc_name": selected.integrity.crc_results[0].crc_name if (selected.integrity and selected.integrity.crc_results) else "none"},
             correction_masks=corr_masks,
             structural_evidence={

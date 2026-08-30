@@ -57,12 +57,21 @@ class FECCodeFamily(str, Enum):
     PARITY = "parity"
     HAMMING = "hamming"
     CONVOLUTIONAL = "convolutional"
+    REED_SOLOMON = "reed_solomon"
+    CONCATENATED = "concatenated"
 
 class ScramblerType(str, Enum):
     NONE = "none"
     LFSR_SYNCHRONOUS = "lfsr_synchronous"
     SELF_SYNCHRONIZING = "self_synchronizing"
     XOR_PERIODIC = "xor_periodic"
+
+class InterleaverType(str, Enum):
+    NONE = "none"
+    BLOCK = "block"
+    CONVOLUTIONAL = "convolutional"
+    DIAGONAL = "diagonal"
+    PSEUDO_RANDOM = "pseudo_random"
 
 @dataclass(frozen=True)
 class BitStream:
@@ -168,6 +177,17 @@ class ScramblerHypothesis:
     valid: bool = True
 
 @dataclass(frozen=True)
+class InterleaverHypothesis:
+    interleaver_type: InterleaverType
+    parameters: dict[str, Any]
+    permutation_map: tuple[int, ...] | None
+    confidence: float
+    entropy_improvement: float
+    structural_improvement: float
+    valid: bool = True
+    assumptions: tuple[str, ...] = ()
+
+@dataclass(frozen=True)
 class FECHypothesis:
     code_family: FECCodeFamily
     code_name: str
@@ -235,6 +255,7 @@ class ReconstructionCandidate:
     preamble: PreambleCandidate | None
     frames: tuple[FrameCandidate, ...]
     line_code: LineCodeHypothesis | None
+    interleaver: InterleaverHypothesis | None
     scrambler: ScramblerHypothesis | None
     fec: FECHypothesis | None
     fec_decode: FECDecodeResult | None
@@ -255,12 +276,13 @@ class Phase6Handoff:
     frame_boundaries: tuple[FrameBoundary, ...]
     fec_parameters: dict[str, Any]
     scrambler_parameters: dict[str, Any]
-    crc_parameters: dict[str, Any]
-    correction_masks: tuple[np.ndarray, ...]
-    structural_evidence: dict[str, Any]
-    candidate_ranking_provenance: dict[str, Any]
-    assumptions: tuple[str, ...]
-    uncertainties: tuple[str, ...]
+    interleaver_parameters: dict[str, Any] = field(default_factory=dict)
+    crc_parameters: dict[str, Any] = field(default_factory=dict)
+    correction_masks: tuple[np.ndarray, ...] = ()
+    structural_evidence: dict[str, Any] = field(default_factory=dict)
+    candidate_ranking_provenance: dict[str, Any] = field(default_factory=dict)
+    assumptions: tuple[str, ...] = ()
+    uncertainties: tuple[str, ...] = ()
 
 @dataclass(frozen=True)
 class DataRecoveryConfig:
@@ -269,12 +291,22 @@ class DataRecoveryConfig:
     max_crc_candidates: int = 16
     max_fec_candidates: int = 8
     max_scrambler_candidates: int = 8
+    max_interleaver_hypotheses: int = 8
     max_frames_to_analyze: int = 100
     max_correction_fraction: float = 0.10   # Max 10% bit alteration allowed
     min_frames_for_periodicity: int = 3
     complexity_weight: float = 0.15
     random_seed: int = 42
     max_runtime_seconds: float = 10.0
+    evaluate_all_bit_offsets: bool = True
+    evaluate_polarity_inversion: bool = True
+    evaluate_rotational_ambiguities: bool = True
+    enable_viterbi: bool = True
+    enable_descrambler: bool = True
+    enable_deinterleaver: bool = True
+    enable_hamming: bool = True
+    enable_reed_solomon: bool = True
+    enable_concatenated: bool = True
 
 @dataclass(frozen=True)
 class DataRecoveryAnalysis:

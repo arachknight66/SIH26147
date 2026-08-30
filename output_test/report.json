@@ -34,10 +34,10 @@
         "order": 8
       },
       {
-        "label": "16QAM",
+        "label": "BPSK",
         "score": 0.0,
-        "family": "QAM",
-        "order": 16
+        "family": "PSK",
+        "order": 2
       },
       {
         "label": "2-FSK",
@@ -46,10 +46,10 @@
         "order": 2
       },
       {
-        "label": "BPSK",
+        "label": "16QAM",
         "score": 0.0,
-        "family": "PSK",
-        "order": 2
+        "family": "QAM",
+        "order": 16
       }
     ]
   },
@@ -197,24 +197,24 @@
     },
     "random_seed": 42,
     "reproducibility_hash": "1ff4375d68855c8e26833e93238059a53a2134857af948e936a6342ca4a2ed27",
-    "timestamp_utc": "2026-08-27T15:51:09.865714+00:00",
+    "timestamp_utc": "2026-08-28T17:59:02.347314+00:00",
     "stage_durations": {
-      "phase1": 0.0012,
-      "phase2": 0.0105,
-      "phase3": 0.0114,
-      "phase4": 0.2718,
-      "phase5": 2.4379,
-      "phase6": 0.0288
+      "phase1": 0.0026,
+      "phase2": 0.0083,
+      "phase3": 0.0178,
+      "phase4": 0.5328,
+      "phase5": 4.3934,
+      "phase6": 0.0182
     },
     "user_overrides": {}
   },
   "durations_seconds": {
-    "total": 2.7621,
-    "phase1": 0.0012,
-    "phase2": 0.0105,
-    "phase3": 0.0114,
-    "phase4": 0.2718,
-    "phase5": 2.4379,
-    "phase6": 0.0288
+    "total": 4.9737,
+    "phase1": 0.0026,
+    "phase2": 0.0083,
+    "phase3": 0.0178,
+    "phase4": 0.5328,
+    "phase5": 4.3934,
+    "phase6": 0.0182
   }
 }

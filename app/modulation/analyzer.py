@@ -8,7 +8,7 @@ from app.models.signal import SignalRecording
 from .candidates import attach_candidate_parameters
 from .classical_classifier import compute_classical_scores
 from .features import extract_modulation_features
-from .ml_classifier import get_ml_model_metadata, predict_ml_scores
+from .ml_classifier import MLClassificationResult, get_ml_model_metadata, predict_ml_scores
 from .models import (
     FeatureValidity,
     ModulationAnalysis,
@@ -129,8 +129,12 @@ def analyze_modulation(
     # 2. Classical Scoring
     classical_res = compute_classical_scores(feature_vector)
 
-    # 3. Lightweight ML Classification
-    ml_res = predict_ml_scores(feature_vector)
+    # 3. Optional experimental ML classification. The default path remains
+    # deterministic, evidence-driven, and independent of a trained model.
+    if cfg.enable_ml:
+        ml_res = predict_ml_scores(feature_vector)
+    else:
+        ml_res = MLClassificationResult(scores={}, model_version="disabled", feature_schema_version="n/a", uncertainty=0.0)
 
     # 4. Multi-Window Consistency Evaluation
     window_consistency = 1.0
@@ -142,7 +146,7 @@ def analyze_modulation(
             sub_samples = conditioned_samples[w_i * sub_len : (w_i + 1) * sub_len]
             sub_fv = extract_modulation_features(sub_samples)
             sub_classical = compute_classical_scores(sub_fv)
-            sub_ml = predict_ml_scores(sub_fv)
+            sub_ml = predict_ml_scores(sub_fv) if cfg.enable_ml else MLClassificationResult(scores={}, model_version="disabled", feature_schema_version="n/a", uncertainty=0.0)
             sub_hyps, sub_sel, _, _ = evaluate_and_rank_hypotheses(sub_fv, sub_classical, sub_ml, cfg, snr_estimates=analysis.snr_candidates)
             if sub_hyps:
                 window_winners.append((sub_hyps[0].family.value, sub_hyps[0].order))

@@ -69,7 +69,7 @@ def evaluate_and_rank_hypotheses(
     for cls_key in all_classes:
         fam, ord_ = cls_key
         c_score = classical_res.scores.get(cls_key, 0.05)
-        m_score = ml_res.scores.get(cls_key, 0.05)
+        m_score = ml_res.scores.get(cls_key, 0.05) if config.enable_ml else 0.0
         
         c_breakdown = classical_res.evidence_breakdown.get(cls_key, {})
         c_notes = classical_res.supporting_notes.get(cls_key, [])
@@ -130,7 +130,7 @@ def evaluate_and_rank_hypotheses(
         )
 
     # Sort hypotheses by score descending
-    sorted_hypotheses = sorted(hypotheses, key=lambda h: -h.score)
+    sorted_hypotheses = sorted(hypotheses, key=lambda h: -h.score)[: config.max_hypotheses]
 
     if not sorted_hypotheses:
         return [], None, False, True

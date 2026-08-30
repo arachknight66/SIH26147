@@ -166,9 +166,12 @@ class ModulationAnalysisConfig:
     unknown_threshold: float = 0.45
     ambiguity_margin: float = 0.08
     window_count: int = 4
-    enable_ml: bool = True
+    # Phase 3 is intentionally deterministic and explainable. ML can only be
+    # enabled explicitly for experimentation; it is not part of the core path.
+    enable_ml: bool = False
     random_seed: int = 42
     max_analysis_samples: int = 65536
+    max_hypotheses: int = 5
 
 @dataclass
 class ModulationAnalysis:

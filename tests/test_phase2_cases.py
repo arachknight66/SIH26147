@@ -156,6 +156,9 @@ def test_e_burst_signal():
     assert len(burst_regs) >= 1
     assert abs(burst_regs[0].start_sample - 1024) < 100
     assert abs(burst_regs[0].end_sample - 3072) < 100
+    assert analysis.activity_metrics is not None
+    assert analysis.activity_metrics.burst_count >= 1
+    assert 0.40 < analysis.activity_metrics.duty_cycle < 0.60
 
 # -------------------------------------------------------------
 # TEST F — Frequency-Shifted Signal

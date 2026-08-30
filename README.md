@@ -71,6 +71,25 @@ python -m scripts.run_full_benchmark
 python -m scripts.generate_demo_dataset
 ```
 
+### Installation profiles
+
+```bash
+# Core processing and tests
+uv sync --extra dev
+
+# Desktop GUI and plotting
+uv sync --extra gui --extra reporting
+
+# Verify canonical raw-IQ ingestion without running the full pipeline
+python -m scripts.smoke_phase1
+```
+
+Raw `.iq`, `.raw`, and `.bin` captures require an explicit interpretation. For example:
+
+```bash
+python -m scripts.sih26147 analyze capture.iq --raw-dtype int16 --iq-order IQ --endian little --sample-rate 2000000 --center-frequency 433920000
+```
+
 ---
 
 ## 3. Documentation

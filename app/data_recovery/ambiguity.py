@@ -65,21 +65,22 @@ def generate_ambiguity_hypotheses(
         diagnostics=bitstream.diagnostics,
         provenance={"inverted_from_hypothesis": 1},
     )
-    hypotheses.append(
-        BitHypothesis(
-            hypothesis_id=2,
-            bitstream=inv_stream,
-            phase_rotation_deg=180.0,
-            polarity=BitPolarity.INVERTED,
-            line_code=LineCodeType.NONE,
-            bit_order=BitOrder.UNKNOWN,
-            bit_offset=0,
-            epistemic_status=EpistemicStatus.INFERRED,
+    if cfg.evaluate_polarity_inversion:
+        hypotheses.append(
+            BitHypothesis(
+                hypothesis_id=2,
+                bitstream=inv_stream,
+                phase_rotation_deg=180.0,
+                polarity=BitPolarity.INVERTED,
+                line_code=LineCodeType.NONE,
+                bit_order=BitOrder.UNKNOWN,
+                bit_offset=0,
+                epistemic_status=EpistemicStatus.INFERRED,
+            )
         )
-    )
 
     # 3. 90 deg and 270 deg rotations for 2-bit per symbol (QPSK-like streams)
-    if len(hard) % 2 == 0 and len(hard) >= 32 and cfg.max_bit_hypotheses >= 4:
+    if cfg.evaluate_rotational_ambiguities and len(hard) % 2 == 0 and len(hard) >= 32 and cfg.max_bit_hypotheses >= 4:
         # Reshape to paired bits [b_I, b_Q]
         b_pairs = hard.reshape(-1, 2)
         b_I = b_pairs[:, 0]
@@ -150,5 +151,41 @@ def generate_ambiguity_hypotheses(
                 epistemic_status=EpistemicStatus.INFERRED,
             )
         )
+
+    # Bit alignment is an explicit hypothesis, not an implicit byte conversion.
+    # Each offset retains the source transformation and trims only leading bits.
+    if cfg.evaluate_all_bit_offsets:
+        base_hypotheses = list(hypotheses)
+        next_id = len(hypotheses) + 1
+        for offset in range(1, 8):
+            for base in base_hypotheses:
+                if len(hypotheses) >= cfg.max_bit_hypotheses:
+                    break
+                source = base.bitstream
+                shifted = BitStream(
+                    hard_bits=source.hard_bits[offset:].copy(),
+                    soft_bits=source.soft_bits[offset:].copy() if source.soft_bits is not None else None,
+                    symbol_indices=source.symbol_indices,
+                    bit_order=source.bit_order,
+                    bit_polarity=source.bit_polarity,
+                    bit_offset=offset,
+                    source_candidate=source.source_candidate,
+                    sample_indices=source.sample_indices,
+                    diagnostics=source.diagnostics,
+                    provenance={**source.provenance, "bit_offset": offset, "derived_from_hypothesis": base.hypothesis_id},
+                )
+                hypotheses.append(BitHypothesis(
+                    hypothesis_id=next_id,
+                    bitstream=shifted,
+                    phase_rotation_deg=base.phase_rotation_deg,
+                    polarity=base.polarity,
+                    line_code=base.line_code,
+                    bit_order=base.bit_order,
+                    bit_offset=offset,
+                    epistemic_status=EpistemicStatus.INFERRED,
+                ))
+                next_id += 1
+            if len(hypotheses) >= cfg.max_bit_hypotheses:
+                break
 
     return hypotheses[: cfg.max_bit_hypotheses]

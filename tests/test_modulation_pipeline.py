@@ -32,6 +32,14 @@ def test_pipeline_single_carrier_qpsk():
     assert "provenance" in result.__dict__
     assert result.raw_distribution is not None
     assert len(result.raw_distribution.sample_subset_i) > 0
+    assert result.provenance["ml_metadata"] is None
+
+def test_pipeline_enforces_hypothesis_limit_without_ml():
+    samples, _ = generate_modulated_signal("QPSK", snr_db=20.0, seed=42)
+    rec = SignalRecording(samples=samples, source_format=SourceFormat.RAW_IQ, original_dtype="complex64", channels=2, semantic_type="complex_iq")
+    result = analyze_modulation(rec, config=ModulationAnalysisConfig(enable_ml=False, max_hypotheses=2))
+    assert len(result.hypotheses) <= 2
+    assert result.provenance["ml_metadata"] is None
 
 def test_pipeline_frequency_offset_shifted_region():
     # Signal with 0.10 carrier frequency offset

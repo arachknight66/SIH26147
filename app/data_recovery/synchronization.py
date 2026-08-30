@@ -184,6 +184,6 @@ def detect_preamble_candidates(
                 )
             )
 
-    # Sort by confidence descending
-    candidates.sort(key=lambda c: (c.is_periodic, c.confidence, c.length_bits, c.match_count), reverse=True)
+    # Sort by periodicity, variance, length, and confidence descending
+    candidates.sort(key=lambda c: (c.is_periodic, -c.spacing_variance, c.length_bits, c.confidence, c.match_count), reverse=True)
     return candidates

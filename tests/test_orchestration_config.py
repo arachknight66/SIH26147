@@ -40,3 +40,30 @@ def test_config_serialization_and_hash():
     assert h1 == h2
     assert h1 != h3
     assert len(h1) == 64
+
+def test_measurement_config_respects_pipeline_settings():
+    cfg = get_preset_config(PresetName.FAST_SCREENING)
+    measurement = cfg.to_measurement_config()
+    assert measurement.fft_size == cfg.analysis.fft_size
+    assert measurement.psd_segment_length == cfg.analysis.welch_segment_length
+    assert measurement.max_samples_for_analysis == cfg.limits.max_analysis_samples
+
+def test_modulation_config_is_deterministic_and_respects_candidate_limit():
+    cfg = get_preset_config(PresetName.STANDARD_ANALYSIS)
+    modulation = cfg.to_modulation_config()
+    assert modulation.enable_ml is False
+    assert modulation.max_hypotheses == cfg.modulation.max_hypotheses
+
+def test_recovery_config_respects_pipeline_controls():
+    cfg = get_preset_config(PresetName.FAST_SCREENING)
+    recovery = cfg.to_recovery_config()
+    assert recovery.max_candidates == cfg.recovery.max_candidates
+    assert recovery.loop_bandwidth == cfg.recovery.loop_bandwidth
+    assert recovery.max_recovery_samples == cfg.limits.max_analysis_samples
+
+def test_data_recovery_config_respects_pipeline_controls():
+    cfg = get_preset_config(PresetName.STANDARD_ANALYSIS)
+    data = cfg.to_data_recovery_config()
+    assert data.enable_viterbi is cfg.data_recovery.enable_viterbi
+    assert data.enable_descrambler is cfg.data_recovery.enable_descrambler
+    assert data.evaluate_all_bit_offsets is cfg.data_recovery.eval_all_bit_offsets

@@ -74,7 +74,7 @@ def run_psk_receiver(
         damping=cfg.damping_factor,
     )
 
-    if len(sym_timed) < 16:
+    if len(sym_timed) < cfg.min_recovery_symbols:
         diagnostics.append(
             Diagnostic(
                 code="INSUFFICIENT_SYMBOLS",

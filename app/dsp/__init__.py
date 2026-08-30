@@ -5,7 +5,7 @@ from .frequency import compute_all_frequency_estimates, estimate_frequency_phase
 from .noise import estimate_noise_floor
 from .pipeline import AnalysisConfig, DSPPipelineResult, run_dsp_pipeline
 from .psd import compute_psd
-from .rate_estimation import estimate_symbol_rate_candidates
+from .rate_estimation import estimate_symbol_rate_candidates, estimate_symbol_rate_consensus
 from .snr import compute_all_snr_estimates, estimate_snr_m2m4, estimate_snr_spectral
 from .spectrogram import compute_spectrogram
 from .spectrum import compute_spectrum
@@ -28,6 +28,7 @@ __all__ = [
     "estimate_noise_floor",
     "compute_psd",
     "estimate_symbol_rate_candidates",
+    "estimate_symbol_rate_consensus",
     "compute_all_snr_estimates",
     "estimate_snr_spectral",
     "estimate_snr_m2m4",

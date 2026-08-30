@@ -122,6 +122,9 @@ def run_pipeline(
                     dtype=cfg.user_overrides.get("raw_dtype", "complex64"),
                     iq_order=IQOrder(iq_str) if iq_str in ("IQ", "QI") else IQOrder.IQ,
                     endian=Endian(end_str) if end_str in ("little", "big") else Endian.LITTLE,
+                    sample_rate_hz=cfg.user_overrides.get("sample_rate_hz"),
+                    center_frequency_hz=cfg.user_overrides.get("center_frequency_hz"),
+                    compute_hash=True,
                 )
                 rec = load_signal(p, raw_config=raw_cfg)
             else:
@@ -160,7 +163,7 @@ def run_pipeline(
     sm.transition_to(PipelineState.ANALYZING)
     tracker.update(2, "Phase 2: Physical Analysis", "Computing FFT, Welch PSD, noise floor, SNR, and signal regions...", 0.2)
 
-    res_p2 = execute_stage("phase2_analysis", 2, lambda: analyze_signal(recording), token)
+    res_p2 = execute_stage("phase2_analysis", 2, lambda: analyze_signal(recording, config=cfg.to_measurement_config()), token)
     stage_durations["phase2"] = res_p2.duration_seconds
     if not res_p2.success or res_p2.output is None:
         sm.transition_to(PipelineState.FAILED)
@@ -190,7 +193,7 @@ def run_pipeline(
     sm.transition_to(PipelineState.CLASSIFYING)
     tracker.update(3, "Phase 3: Modulation Analysis", "Extracting cumulant/spectral features and ranking hypotheses...", 0.4)
 
-    res_p3 = execute_stage("phase3_modulation", 3, lambda: analyze_modulation(recording, analysis_p2), token)
+    res_p3 = execute_stage("phase3_modulation", 3, lambda: analyze_modulation(recording, analysis_p2, config=cfg.to_modulation_config()), token)
     stage_durations["phase3"] = res_p3.duration_seconds
     if not res_p3.success or res_p3.output is None:
         sm.transition_to(PipelineState.FAILED)
@@ -251,7 +254,7 @@ def run_pipeline(
                 is_inconclusive=False,
             )
         else:
-            return recover_signal(recording, analysis=analysis_p2, modulation_analysis=analysis_p3)
+            return recover_signal(recording, analysis=analysis_p2, modulation_analysis=analysis_p3, config=cfg.to_recovery_config())
 
     res_p4 = execute_stage("phase4_recovery", 4, _exec_phase4, token)
     stage_durations["phase4"] = res_p4.duration_seconds
@@ -314,7 +317,7 @@ def run_pipeline(
     sm.transition_to(PipelineState.RECONSTRUCTING)
     tracker.update(5, "Phase 5: Data Recovery", "Reconstructing frames, evaluating descrambler, Viterbi FEC, and CRC...", 0.8)
 
-    res_p5 = execute_stage("phase5_data_recovery", 5, lambda: recover_data(recovery_p4), token)
+    res_p5 = execute_stage("phase5_data_recovery", 5, lambda: recover_data(recovery_p4, config=cfg.to_data_recovery_config()), token)
     stage_durations["phase5"] = res_p5.duration_seconds
     if not res_p5.success or res_p5.output is None:
         sm.transition_to(PipelineState.FAILED)

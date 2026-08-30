@@ -16,6 +16,7 @@ from app.models.analysis import (
     SpectrumResult,
     SymbolRateCandidate,
     TimeStatistics,
+    ActivityMetrics,
 )
 from app.models.metadata import Diagnostic, DiagnosticSeverity, MetadataStatus
 from .autocorrelation import compute_autocorrelation
@@ -68,12 +69,14 @@ class DSPPipelineResult:
     snr_candidates: list[SNREstimate]
     frequency_candidates: list[FrequencyEstimate]
     symbol_rate_candidates: list[SymbolRateCandidate]
+    activity_metrics: ActivityMetrics
     diagnostics: list[Diagnostic] = field(default_factory=list)
 
 def run_dsp_pipeline(
     samples: np.ndarray,
     *,
     sample_rate_hz: float | None = None,
+    sample_rate_confidence: float = 1.0,
     center_frequency_hz: float | None = None,
     is_complex: bool = True,
     original_dtype: str = "complex64",
@@ -274,6 +277,30 @@ def run_dsp_pipeline(
         )
         reg_id += 1
     detected_regions = all_regions
+
+    # Spectral regions describe occupied frequency. Duty cycle must instead be
+    # computed from the union of energy-based time-domain burst intervals.
+    active_mask = np.zeros(n_samples, dtype=bool)
+    for region in burst_regions:
+        if region.start_sample is not None and region.end_sample is not None:
+            active_mask[max(0, region.start_sample) : min(n_samples, region.end_sample + 1)] = True
+    active_count = int(np.count_nonzero(active_mask))
+    duty_cycle = active_count / n_samples
+    if burst_regions:
+        activity_quality = float(np.clip(np.mean([r.confidence for r in burst_regions]), 0.0, 1.0))
+        activity_evidence = f"{len(burst_regions)} energy burst(s), {active_count}/{n_samples} active samples."
+    else:
+        activity_quality = 0.35
+        activity_evidence = "No time-domain burst exceeded the configured energy threshold; continuous or low-SNR signals remain possible."
+    activity_metrics = ActivityMetrics(
+        active_sample_count=active_count,
+        total_sample_count=n_samples,
+        duty_cycle=round(duty_cycle, 6),
+        burst_count=len(burst_regions),
+        method="time_domain_power_envelope",
+        quality_score=round(activity_quality, 3),
+        evidence=activity_evidence,
+    )
     
     if not detected_regions:
         diagnostics.append(
@@ -349,18 +376,23 @@ def run_dsp_pipeline(
 
     # 12. Symbol-rate candidates
     if cfg.enable_symbol_rate_candidates and n_samples >= 64:
+        obw_99_val = bw_99.occupied_bandwidth_normalized if (bw_99 and bw_99.occupied_bandwidth_normalized) else None
         symbol_rate_candidates = estimate_symbol_rate_candidates(
             analysis_samples,
             autocorr_result=autocorr,
             sample_rate_hz=sample_rate_hz,
+            sample_rate_confidence=sample_rate_confidence,
+            occupied_bandwidth_normalized=obw_99_val,
         )
         if symbol_rate_candidates:
+            top_status = symbol_rate_candidates[0].status
+            status_desc = "cross-validated" if top_status == MetadataStatus.ESTIMATED else "preliminary"
             diagnostics.append(
                 Diagnostic(
                     DiagnosticSeverity.INFO,
                     "SYMBOL_RATE_CANDIDATES_AVAILABLE",
-                    f"Generated {len(symbol_rate_candidates)} preliminary symbol-rate candidate(s).",
-                    "Preliminary candidate rates subject to downstream AMC and clock recovery in Phase 3/4.",
+                    f"Generated {len(symbol_rate_candidates)} {status_desc} symbol-rate candidate(s).",
+                    "Candidate rates subject to downstream AMC and clock recovery in Phase 3/4.",
                 )
             )
     else:
@@ -393,5 +425,6 @@ def run_dsp_pipeline(
         snr_candidates=snr_candidates,
         frequency_candidates=frequency_candidates,
         symbol_rate_candidates=symbol_rate_candidates,
+        activity_metrics=activity_metrics,
         diagnostics=diagnostics,
     )

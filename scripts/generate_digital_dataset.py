@@ -3,6 +3,13 @@ from typing import Any
 import numpy as np
 from app.data_recovery.crc import compute_crc
 from app.data_recovery.fec_decode import encode_convolutional
+from app.data_recovery.interleaving import (
+    interleave_block,
+    interleave_convolutional,
+    interleave_diagonal,
+    interleave_pseudorandom,
+)
+from app.data_recovery.reed_solomon import ReedSolomonCodec
 from app.data_recovery.scrambling import descramble_lfsr
 
 def generate_digital_stream(
@@ -13,6 +20,9 @@ def generate_digital_stream(
     bit_offset: int = 0,
     invert_polarity: bool = False,
     burst_error_len: int = 0,
+    interleaver_type: str | None = None,
+    interleaver_params: dict[str, Any] | None = None,
+    rs_params: dict[str, Any] | None = None,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """
@@ -34,6 +44,10 @@ def generate_digital_stream(
         Whether to invert all bits.
     burst_error_len : int
         Length of a burst error to inject.
+    interleaver_type : str | None
+        Optional interleaver: 'BLOCK', 'CONVOLUTIONAL', 'DIAGONAL', 'PSEUDO_RANDOM'
+    interleaver_params : dict[str, Any] | None
+        Parameters for interleaver.
     seed : int
         Random seed.
 
@@ -63,7 +77,7 @@ def generate_digital_stream(
         payload_bytes = bytes(rng.integers(32, 126, payload_len_bytes, dtype=np.uint8))
         ground_truth_payloads.append(payload_bytes)
 
-        if prot_upper in ("PROTOCOL_A", "PROTOCOL_C", "PROTOCOL_D"):
+        if prot_upper in ("PROTOCOL_A", "PROTOCOL_C", "PROTOCOL_D", "PROTOCOL_F", "PROTOCOL_G"):
             # Preamble: 0x2DD4 (16-bit)
             preamble_bytes = bytes.fromhex("2dd4")
             # Length field: 16-bit big-endian
@@ -94,6 +108,32 @@ def generate_digital_stream(
 
     tx_bits = np.concatenate(frame_bit_list)
 
+    # Helper for RS block encoding
+    def _apply_rs_encoding(bits: np.ndarray, rs_cfg: dict[str, Any] | None) -> np.ndarray:
+        p = rs_cfg or {}
+        n_s = p.get("n_symbols", 64)
+        k_s = p.get("k_symbols", 48)
+        m_s = p.get("symbol_width", 8)
+        poly = p.get("prim_poly", 0x11D)
+        fcr = p.get("first_consecutive_root", 1)
+        codec = ReedSolomonCodec(n_symbols=n_s, k_symbols=k_s, symbol_width=m_s, prim_poly=poly, first_consecutive_root=fcr)
+
+        k_bits = k_s * m_s
+        n_blocks = int(np.ceil(len(bits) / k_bits))
+        padded_len = n_blocks * k_bits
+        padded_bits = np.zeros(padded_len, dtype=np.uint8)
+        padded_bits[: len(bits)] = bits
+
+        encoded_blocks: list[np.ndarray] = []
+        for b_idx in range(n_blocks):
+            blk = padded_bits[b_idx * k_bits : (b_idx + 1) * k_bits]
+            syms = np.packbits(blk.reshape(k_s, m_s), axis=1).squeeze(-1)
+            code_syms = codec.encode(syms)
+            code_bits = np.unpackbits(code_syms.astype(np.uint8)[:, None], axis=1)[:, 8 - m_s :].ravel()
+            encoded_blocks.append(code_bits)
+
+        return np.concatenate(encoded_blocks)
+
     # Apply Stream-level Scrambling & FEC transformations
     if prot_upper == "PROTOCOL_C":
         tx_bits = encode_convolutional(tx_bits, k=7, g1=0o133, g2=0o171)
@@ -102,6 +142,40 @@ def generate_digital_stream(
     elif prot_upper == "PROTOCOL_E":
         tx_scrambled = descramble_lfsr(tx_bits, taps=(7, 4))
         tx_bits = encode_convolutional(tx_scrambled, k=7, g1=0o133, g2=0o171)
+    elif prot_upper == "PROTOCOL_F":
+        tx_bits = _apply_rs_encoding(tx_bits, rs_params)
+    elif prot_upper == "PROTOCOL_G":
+        # Concatenated: RS outer encode -> Interleaver -> Convolutional inner encode
+        rs_encoded = _apply_rs_encoding(tx_bits, rs_params)
+        if interleaver_type is not None:
+            i_type_upper = interleaver_type.upper().strip()
+            i_params = interleaver_params or {}
+            if i_type_upper == "BLOCK":
+                inter_bits = interleave_block(rs_encoded, span=i_params.get("span", 8), depth=i_params.get("depth", 8))
+            elif i_type_upper == "CONVOLUTIONAL":
+                inter_bits = interleave_convolutional(rs_encoded, branches=i_params.get("branches", 4), delay_increment=i_params.get("delay_increment", 1))
+            elif i_type_upper == "DIAGONAL":
+                inter_bits = interleave_diagonal(rs_encoded, span=i_params.get("span", 8), depth=i_params.get("depth", 8), step=i_params.get("step", 1))
+            elif i_type_upper == "PSEUDO_RANDOM":
+                inter_bits = interleave_pseudorandom(rs_encoded, taps=i_params.get("taps", (7, 4)), block_size=i_params.get("block_size", 128))
+            else:
+                inter_bits = rs_encoded
+        else:
+            inter_bits = rs_encoded
+        tx_bits = encode_convolutional(inter_bits, k=7, g1=0o133, g2=0o171)
+
+    # Apply Channel Interleaving if specified (for non-concatenated protocols)
+    if interleaver_type is not None and prot_upper != "PROTOCOL_G":
+        i_type_upper = interleaver_type.upper().strip()
+        i_params = interleaver_params or {}
+        if i_type_upper == "BLOCK":
+            tx_bits = interleave_block(tx_bits, span=i_params.get("span", 8), depth=i_params.get("depth", 8))
+        elif i_type_upper == "CONVOLUTIONAL":
+            tx_bits = interleave_convolutional(tx_bits, branches=i_params.get("branches", 4), delay_increment=i_params.get("delay_increment", 1))
+        elif i_type_upper == "DIAGONAL":
+            tx_bits = interleave_diagonal(tx_bits, span=i_params.get("span", 8), depth=i_params.get("depth", 8), step=i_params.get("step", 1))
+        elif i_type_upper == "PSEUDO_RANDOM":
+            tx_bits = interleave_pseudorandom(tx_bits, taps=i_params.get("taps", (7, 4)), block_size=i_params.get("block_size", 128))
 
     tx_len = len(tx_bits)
 
@@ -139,6 +213,11 @@ def generate_digital_stream(
         "bit_offset": bit_offset,
         "invert_polarity": invert_polarity,
         "burst_error_len": burst_error_len,
+        "interleaver_type": interleaver_type,
+        "interleaver_params": interleaver_params,
+        "rs_params": rs_params,
+        "inner_fec": "CONV_K7_R12_NASA" if prot_upper in ("PROTOCOL_C", "PROTOCOL_E", "PROTOCOL_G") else None,
+        "outer_fec": rs_params if prot_upper in ("PROTOCOL_F", "PROTOCOL_G") else None,
         "ground_truth_payloads": ground_truth_payloads,
         "clean_tx_bits": tx_bits,
     }
