@@ -7,7 +7,12 @@ from app.data_recovery.concatenated_codes import (
     execute_reversed_order_decode,
 )
 from app.data_recovery.fec_decode import viterbi_decode
-from app.data_recovery.ldpc import STANDARD_LDPC_SPECS, decode_ldpc, decode_ldpc_bitstream
+from app.data_recovery.ldpc import (
+    STANDARD_LDPC_SPECS,
+    LDPCTerminationStatus,
+    decode_ldpc,
+    decode_ldpc_bitstream,
+)
 from app.data_recovery.models import DataRecoveryAnalysis, FECCodeFamily, Phase6Handoff
 from app.data_recovery.reed_solomon import ReedSolomonCodec
 from .models import FECAuditResult, TestResultStatus, VerificationConfig, VerificationTest
@@ -99,7 +104,7 @@ def audit_fec_and_cross_validation(
         # LDPC lacks a closed-form Singleton-style exact algebraic bound.
         # Verification requires:
         # (1) Certified exact syndrome zero on decoded blocks (recomputed independently)
-        # (2) Non-saturation of max iteration cap
+        # (2) Non-saturation of max iteration cap and genuine convergence status
         # (3) Correction fraction within rate-informed plausibility band (<= 15% for R=1/2)
         ldpc_spec = next((s for name, s in STANDARD_LDPC_SPECS.items() if name in fec_hyp.code_name), list(STANDARD_LDPC_SPECS.values())[0])
         n_bits = ldpc_spec.n_bits
@@ -116,9 +121,22 @@ def audit_fec_and_cross_validation(
                     independent_syndrome_valid = False
                     break
 
-        is_anti_over = bool(corr_frac <= allowable_budget and independent_syndrome_valid)
+        # Independent convergence-reason check
+        ldpc_convergence_genuine = True
+        raw_to_check = handoff.raw_bits if handoff and len(handoff.raw_bits) >= n_bits else (sel_cand.bit_hypothesis.bitstream.hard_bits if sel_cand and len(sel_cand.bit_hypothesis.bitstream.hard_bits) >= n_bits else np.array([], dtype=np.uint8))
+        if len(raw_to_check) >= n_bits:
+            num_blocks = len(raw_to_check) // n_bits
+            for b in range(min(4, num_blocks)):
+                blk = raw_to_check[b * n_bits : (b + 1) * n_bits]
+                chk_res = decode_ldpc(blk, code_spec=ldpc_spec, max_iterations=50, max_correction_fraction=allowable_budget)
+                if chk_res.termination_status != LDPCTerminationStatus.CONVERGED or chk_res.iterations_used >= chk_res.max_iterations:
+                    ldpc_convergence_genuine = False
+                    break
+
+        is_anti_over = bool(corr_frac <= allowable_budget and independent_syndrome_valid and ldpc_convergence_genuine)
         details_dict.update({
             "independent_syndrome_valid": independent_syndrome_valid,
+            "ldpc_convergence_genuine": ldpc_convergence_genuine,
             "girth": ldpc_spec.girth,
             "sparsity": round(ldpc_spec.sparsity, 4),
             "epistemic_nature": "empirical_belief_propagation_syndrome_certificate",
@@ -136,7 +154,11 @@ def audit_fec_and_cross_validation(
             status=TestResultStatus.PASS if is_anti_over else TestResultStatus.FAIL,
             score=max(0.0, 1.0 - (corr_frac / max(1e-4, allowable_budget))),
             details={"corrected_bits": corr_count, "correction_fraction": round(corr_frac, 4), "budget": allowable_budget, **details_dict},
-            counter_evidence=f"Excessive bit alterations ({corr_frac * 100:.1f}%) exceeds safety budget" if not is_anti_over else None,
+            counter_evidence=(
+                f"Excessive bit alterations ({corr_frac * 100:.1f}%) exceeds safety budget"
+                if corr_frac > allowable_budget
+                else ("LDPC syndrome reached zero but at the iteration cap boundary — convergence reason not confirmed genuine" if not details_dict.get("ldpc_convergence_genuine", True) else None)
+            ),
             is_critical=True,
         )
     )
@@ -144,6 +166,9 @@ def audit_fec_and_cross_validation(
     # 70/30 Held-out Cross-Validation
     raw_channel_bits = handoff.raw_bits if handoff else (sel_cand.bit_hypothesis.bitstream.hard_bits if sel_cand else np.array([], dtype=np.uint8))
     held_out_passed = True
+    extra_cross_val_details: dict[str, Any] = {}
+    sel_iters = 0
+    val_iters = 0
 
     if len(raw_channel_bits) >= 64:
         if fec_hyp.code_family == FECCodeFamily.CONCATENATED:
@@ -182,11 +207,28 @@ def audit_fec_and_cross_validation(
             if num_blocks >= 2:
                 val_block_start = max(1, int(num_blocks * 0.70))
                 val_ldpc_bits = raw_channel_bits[val_block_start * n_bits:]
+                sel_ldpc_bits = raw_channel_bits[: val_block_start * n_bits]
             else:
                 val_ldpc_bits = raw_channel_bits
+                sel_ldpc_bits = raw_channel_bits
+
+            sel_res = decode_ldpc(sel_ldpc_bits[:n_bits], code_spec=ldpc_spec, max_correction_fraction=allowable_budget)
+            sel_iters = sel_res.iterations_used
+            sel_term = sel_res.termination_status.value
+
+            val_res = decode_ldpc(val_ldpc_bits[:n_bits], code_spec=ldpc_spec, max_correction_fraction=allowable_budget)
+            val_iters = val_res.iterations_used
+            val_term = val_res.termination_status.value
+
             val_dec = decode_ldpc_bitstream(val_ldpc_bits, code_spec=ldpc_spec, max_correction_fraction=allowable_budget)
-            held_out_passed = bool(val_dec.valid)
+            held_out_passed = bool(val_dec.valid and val_res.termination_status == LDPCTerminationStatus.CONVERGED)
             val_raw_bits = val_ldpc_bits
+            extra_cross_val_details = {
+                "selection_iterations": sel_iters,
+                "validation_iterations": val_iters,
+                "selection_termination": sel_term,
+                "validation_termination": val_term,
+            }
         else:
             s_idx = int(len(raw_channel_bits) * 0.70)
             val_raw_bits = raw_channel_bits[s_idx:]
@@ -203,11 +245,31 @@ def audit_fec_and_cross_validation(
                 description="Verify FEC decoder generalizability on held-out validation frames",
                 status=TestResultStatus.PASS if held_out_passed else TestResultStatus.FAIL,
                 score=1.0 if held_out_passed else 0.20,
-                details={"selection_frames": split_idx, "validation_frames": len(val_raw_bits)},
+                details={"selection_frames": split_idx, "validation_frames": len(val_raw_bits), **extra_cross_val_details},
                 counter_evidence="FEC hypothesis fails on held-out validation frames (possible overfit)" if not held_out_passed else None,
                 is_critical=True,
             )
         )
+
+        if fec_hyp.code_family == FECCodeFamily.LDPC:
+            iter_disparity = val_iters > 3 * max(1, sel_iters) and held_out_passed
+            tests.append(
+                VerificationTest(
+                    test_id="FEC_02B_LDPC_CONVERGENCE_CONSISTENCY",
+                    name="LDPC Iteration Convergence Consistency Check",
+                    category="fec",
+                    description="Verify held-out validation blocks converge with iteration count consistent with selection frames",
+                    status=TestResultStatus.WEAK_PASS if iter_disparity else TestResultStatus.PASS,
+                    score=0.70 if iter_disparity else 1.0,
+                    details={
+                        "selection_iterations": sel_iters,
+                        "validation_iterations": val_iters,
+                        "iteration_ratio": round(val_iters / max(1, sel_iters), 2),
+                    },
+                    counter_evidence=f"Held-out validation required {val_iters} iterations vs {sel_iters} on selection (disparity factor {val_iters/max(1, sel_iters):.1f}x)" if iter_disparity else None,
+                    is_critical=False,
+                )
+            )
 
     # RS Chien-Search Consistency & Perturbation Falsification Probe
     if fec_hyp.code_family == FECCodeFamily.REED_SOLOMON and fec_hyp.block_size:

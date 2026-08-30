@@ -9,6 +9,7 @@ from app.data_recovery.interleaving import (
     interleave_diagonal,
     interleave_pseudorandom,
 )
+from app.data_recovery.ldpc import STANDARD_LDPC_SPECS, encode_ldpc
 from app.data_recovery.reed_solomon import ReedSolomonCodec
 from app.data_recovery.scrambling import descramble_lfsr
 
@@ -23,6 +24,7 @@ def generate_digital_stream(
     interleaver_type: str | None = None,
     interleaver_params: dict[str, Any] | None = None,
     rs_params: dict[str, Any] | None = None,
+    ldpc_params: dict[str, Any] | None = None,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, dict[str, Any]]:
     """
@@ -77,7 +79,7 @@ def generate_digital_stream(
         payload_bytes = bytes(rng.integers(32, 126, payload_len_bytes, dtype=np.uint8))
         ground_truth_payloads.append(payload_bytes)
 
-        if prot_upper in ("PROTOCOL_A", "PROTOCOL_C", "PROTOCOL_D", "PROTOCOL_F", "PROTOCOL_G"):
+        if prot_upper in ("PROTOCOL_A", "PROTOCOL_C", "PROTOCOL_D", "PROTOCOL_F", "PROTOCOL_G", "PROTOCOL_H"):
             # Preamble: 0x2DD4 (16-bit)
             preamble_bytes = bytes.fromhex("2dd4")
             # Length field: 16-bit big-endian
@@ -134,6 +136,26 @@ def generate_digital_stream(
 
         return np.concatenate(encoded_blocks)
 
+    # Helper for LDPC block encoding
+    def _apply_ldpc_encoding(bits: np.ndarray, ldpc_cfg: dict[str, Any] | None) -> np.ndarray:
+        p = ldpc_cfg or {}
+        code_name = p.get("code_name", "QC_LDPC_N128_R12")
+        spec = STANDARD_LDPC_SPECS.get(code_name, STANDARD_LDPC_SPECS["QC_LDPC_N128_R12"])
+        k_bits = spec.k_info_bits
+
+        n_blocks = int(np.ceil(len(bits) / k_bits))
+        padded_len = n_blocks * k_bits
+        padded_bits = np.zeros(padded_len, dtype=np.uint8)
+        padded_bits[: len(bits)] = bits
+
+        encoded_blocks: list[np.ndarray] = []
+        for b_idx in range(n_blocks):
+            blk = padded_bits[b_idx * k_bits : (b_idx + 1) * k_bits]
+            code_bits = encode_ldpc(blk, spec)
+            encoded_blocks.append(code_bits)
+
+        return np.concatenate(encoded_blocks)
+
     # Apply Stream-level Scrambling & FEC transformations
     if prot_upper == "PROTOCOL_C":
         tx_bits = encode_convolutional(tx_bits, k=7, g1=0o133, g2=0o171)
@@ -144,6 +166,8 @@ def generate_digital_stream(
         tx_bits = encode_convolutional(tx_scrambled, k=7, g1=0o133, g2=0o171)
     elif prot_upper == "PROTOCOL_F":
         tx_bits = _apply_rs_encoding(tx_bits, rs_params)
+    elif prot_upper == "PROTOCOL_H":
+        tx_bits = _apply_ldpc_encoding(tx_bits, ldpc_params)
     elif prot_upper == "PROTOCOL_G":
         # Concatenated: RS outer encode -> Interleaver -> Convolutional inner encode
         rs_encoded = _apply_rs_encoding(tx_bits, rs_params)
@@ -216,8 +240,10 @@ def generate_digital_stream(
         "interleaver_type": interleaver_type,
         "interleaver_params": interleaver_params,
         "rs_params": rs_params,
+        "ldpc_params": ldpc_params,
         "inner_fec": "CONV_K7_R12_NASA" if prot_upper in ("PROTOCOL_C", "PROTOCOL_E", "PROTOCOL_G") else None,
         "outer_fec": rs_params if prot_upper in ("PROTOCOL_F", "PROTOCOL_G") else None,
+        "ldpc_fec": ldpc_params if prot_upper == "PROTOCOL_H" else None,
         "ground_truth_payloads": ground_truth_payloads,
         "clean_tx_bits": tx_bits,
     }
