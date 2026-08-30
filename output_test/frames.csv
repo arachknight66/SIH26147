@@ -1,5 +1,0 @@
-frame_index,start_bit,end_bit,total_bits,sequence_number,length_field,is_crc_valid,is_fec_corrected,payload_bytes_len
-1,302,606,304,9271,32,False,False,32
-2,606,910,304,25178,32,False,False,32
-3,910,1214,304,23409,32,False,False,32
-4,1214,1516,302,9528,32,False,False,32

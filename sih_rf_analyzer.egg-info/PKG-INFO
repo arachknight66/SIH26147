@@ -1,9 +1,0 @@
-Metadata-Version: 2.4
-Name: sih-rf-analyzer
-Version: 0.1.0
-Summary: Scientifically defensible signal-input foundation for SIH26147
-Requires-Python: >=3.11
-Requires-Dist: numpy>=1.26
-Requires-Dist: scipy>=1.12
-Provides-Extra: dev
-Requires-Dist: pytest>=8; extra == "dev"
