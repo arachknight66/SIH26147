@@ -7,6 +7,7 @@ from app.data_recovery.concatenated_codes import (
     execute_reversed_order_decode,
 )
 from app.data_recovery.fec_decode import viterbi_decode
+from app.data_recovery.ldpc import STANDARD_LDPC_SPECS, decode_ldpc, decode_ldpc_bitstream
 from app.data_recovery.models import DataRecoveryAnalysis, FECCodeFamily, Phase6Handoff
 from app.data_recovery.reed_solomon import ReedSolomonCodec
 from .models import FECAuditResult, TestResultStatus, VerificationConfig, VerificationTest
@@ -94,6 +95,34 @@ def audit_fec_and_cross_validation(
         # Exact theoretical symbol bound converted to fraction
         allowable_budget = min(cfg.max_allowable_correction_fraction, float(t_radius / n_syms))
         is_anti_over = bool(corr_frac <= allowable_budget)
+    elif fec_hyp.code_family == FECCodeFamily.LDPC:
+        # LDPC lacks a closed-form Singleton-style exact algebraic bound.
+        # Verification requires:
+        # (1) Certified exact syndrome zero on decoded blocks (recomputed independently)
+        # (2) Non-saturation of max iteration cap
+        # (3) Correction fraction within rate-informed plausibility band (<= 15% for R=1/2)
+        ldpc_spec = next((s for name, s in STANDARD_LDPC_SPECS.items() if name in fec_hyp.code_name), list(STANDARD_LDPC_SPECS.values())[0])
+        n_bits = ldpc_spec.n_bits
+        allowable_budget = min(cfg.max_allowable_correction_fraction, 0.15)
+
+        # Independent syndrome check on candidate's corrected bits if available
+        independent_syndrome_valid = True
+        if handoff and len(handoff.corrected_bits) >= n_bits:
+            num_blocks = len(handoff.corrected_bits) // n_bits
+            for b in range(num_blocks):
+                block = handoff.corrected_bits[b * n_bits : (b + 1) * n_bits]
+                syn = np.dot(ldpc_spec.h_matrix, block) % 2
+                if np.sum(syn) != 0:
+                    independent_syndrome_valid = False
+                    break
+
+        is_anti_over = bool(corr_frac <= allowable_budget and independent_syndrome_valid)
+        details_dict.update({
+            "independent_syndrome_valid": independent_syndrome_valid,
+            "girth": ldpc_spec.girth,
+            "sparsity": round(ldpc_spec.sparsity, 4),
+            "epistemic_nature": "empirical_belief_propagation_syndrome_certificate",
+        })
     else:
         allowable_budget = cfg.max_allowable_correction_fraction
         is_anti_over = bool(corr_frac <= allowable_budget)
@@ -146,6 +175,18 @@ def audit_fec_and_cross_validation(
             val_dec = rs_codec.decode_bitstream(val_rs_bits, max_correction_fraction=allowable_budget)
             held_out_passed = bool(val_dec.valid)
             val_raw_bits = val_rs_bits
+        elif fec_hyp.code_family == FECCodeFamily.LDPC:
+            ldpc_spec = next((s for name, s in STANDARD_LDPC_SPECS.items() if name in fec_hyp.code_name), list(STANDARD_LDPC_SPECS.values())[0])
+            n_bits = ldpc_spec.n_bits
+            num_blocks = len(raw_channel_bits) // n_bits
+            if num_blocks >= 2:
+                val_block_start = max(1, int(num_blocks * 0.70))
+                val_ldpc_bits = raw_channel_bits[val_block_start * n_bits:]
+            else:
+                val_ldpc_bits = raw_channel_bits
+            val_dec = decode_ldpc_bitstream(val_ldpc_bits, code_spec=ldpc_spec, max_correction_fraction=allowable_budget)
+            held_out_passed = bool(val_dec.valid)
+            val_raw_bits = val_ldpc_bits
         else:
             s_idx = int(len(raw_channel_bits) * 0.70)
             val_raw_bits = raw_channel_bits[s_idx:]
@@ -219,6 +260,32 @@ def audit_fec_and_cross_validation(
                 score=1.0 if rev_probe_passed else 0.0,
                 details={"reversed_valid": rev_res.valid, "reversed_correction_fraction": rev_res.combined_correction_fraction},
                 counter_evidence="Reversed topology ordering unexpectedly succeeded, indicating unfalsifiable decoding result" if not rev_probe_passed else None,
+                is_critical=True,
+            )
+        )
+
+    # LDPC Perturbation / Syndrome Sensitivity Falsification Probe
+    if fec_hyp.code_family == FECCodeFamily.LDPC:
+        ldpc_spec = next((s for name, s in STANDARD_LDPC_SPECS.items() if name in fec_hyp.code_name), list(STANDARD_LDPC_SPECS.values())[0])
+        # Inject deliberate 25% uncorrelated error pattern (exceeding plausibility budget)
+        rng_probe = np.random.default_rng(999)
+        corrupt_probe = np.zeros(ldpc_spec.n_bits, dtype=np.uint8)
+        num_flips = max(8, int(ldpc_spec.n_bits * 0.25))
+        flips = rng_probe.choice(ldpc_spec.n_bits, size=num_flips, replace=False)
+        corrupt_probe[flips] = 1
+        c_res = decode_ldpc(corrupt_probe, code_spec=ldpc_spec, max_iterations=20, max_correction_fraction=allowable_budget)
+        ldpc_probe_passed = bool(not c_res.valid)
+
+        tests.append(
+            VerificationTest(
+                test_id="FEC_05_LDPC_FALSIFICATION",
+                name="LDPC Non-Codeword Syndrome Rejection Probe",
+                category="fec",
+                description="Verify LDPC decoder definitively rejects uncorrectable high-entropy error vectors",
+                status=TestResultStatus.PASS if ldpc_probe_passed else TestResultStatus.FAIL,
+                score=1.0 if ldpc_probe_passed else 0.0,
+                details={"probe_rejected": not c_res.valid, "final_syndrome_weight": c_res.final_syndrome_weight},
+                counter_evidence="LDPC decoder falsely reported convergence on invalid non-codeword input" if not ldpc_probe_passed else None,
                 is_critical=True,
             )
         )

@@ -20,6 +20,7 @@ from .interleaving import (
     deinterleave_pseudorandom,
     generate_interleaver_hypotheses,
 )
+from .ldpc import STANDARD_LDPC_SPECS, decode_ldpc_bitstream
 from .line_coding import decode_line_code
 from .models import (
     BitHypothesis,
@@ -285,6 +286,31 @@ def build_reconstruction_candidate(
                                 fec_dec=rs_res,
                             )
                         )
+
+        # Path H: Standard Named LDPC Decoding
+        if cfg.enable_ldpc:
+            for ldpc_name, ldpc_spec in STANDARD_LDPC_SPECS.items():
+                if len(deint_bits) >= ldpc_spec.n_bits:
+                    ldpc_hyp = next(
+                        (h for h in STANDARD_FEC_CONFIGURATIONS if h.code_family == FECCodeFamily.LDPC and ldpc_name in h.code_name),
+                        None,
+                    )
+                    if ldpc_hyp is not None:
+                        ldpc_res = decode_ldpc_bitstream(
+                            deint_bits,
+                            code_spec=ldpc_spec,
+                            soft_bits=soft_bits if inter_h.interleaver_type == InterleaverType.NONE else None,
+                            max_correction_fraction=cfg.max_correction_fraction,
+                        )
+                        if ldpc_res.valid:
+                            paths.append(
+                                _evaluate_bits(
+                                    ldpc_res.decoded_bits,
+                                    interleaver_h=inter_h,
+                                    fec_h=ldpc_hyp,
+                                    fec_dec=ldpc_res,
+                                )
+                            )
 
     # Path G: Standard Named Concatenated Topologies Search
     if cfg.enable_concatenated and cfg.enable_viterbi and cfg.enable_reed_solomon and len(proc_bits) >= 64:

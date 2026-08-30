@@ -169,6 +169,56 @@ STANDARD_FEC_CONFIGURATIONS: list[FECHypothesis] = [
         confidence=0.35,
         valid=True,
     ),
+    # -------------------------------------------------------------------------
+    # LDPC Standard Configurations (Quasi-Cyclic and Gallager Regular)
+    # Permanent Epistemic Note: Blind unconstrained LDPC matrix discovery from raw
+    # data is an ill-posed inverse problem; hypothesis search is strictly restricted
+    # to standard registered codes with known structural priors.
+    # -------------------------------------------------------------------------
+    FECHypothesis(
+        code_family=FECCodeFamily.LDPC,
+        code_name="QC_LDPC_N128_R12",
+        rate=0.5,
+        constraint_length=None,
+        generator_polynomials=(),
+        block_size=128,
+        assumptions=("N=128, M=64, K=64, R=0.5, Z=16", "Quasi-cyclic block LDPC, girth >= 6"),
+        confidence=0.35,
+        valid=True,
+    ),
+    FECHypothesis(
+        code_family=FECCodeFamily.LDPC,
+        code_name="QC_LDPC_N256_R12",
+        rate=0.5,
+        constraint_length=None,
+        generator_polynomials=(),
+        block_size=256,
+        assumptions=("N=256, M=128, K=128, R=0.5, Z=32", "Quasi-cyclic block LDPC, girth >= 6"),
+        confidence=0.35,
+        valid=True,
+    ),
+    FECHypothesis(
+        code_family=FECCodeFamily.LDPC,
+        code_name="GALLAGER_N96_R12",
+        rate=0.52,
+        constraint_length=None,
+        generator_polynomials=(),
+        block_size=96,
+        assumptions=("N=96, M=48, K=50, R=0.52", "Gallager (3,6) regular LDPC, girth >= 6"),
+        confidence=0.30,
+        valid=True,
+    ),
+    FECHypothesis(
+        code_family=FECCodeFamily.LDPC,
+        code_name="GALLAGER_N192_R12",
+        rate=0.51,
+        constraint_length=None,
+        generator_polynomials=(),
+        block_size=192,
+        assumptions=("N=192, M=96, K=98, R=0.51", "Gallager (3,6) regular LDPC, girth >= 6"),
+        confidence=0.30,
+        valid=True,
+    ),
 ]
 
 

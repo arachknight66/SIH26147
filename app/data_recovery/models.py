@@ -59,6 +59,7 @@ class FECCodeFamily(str, Enum):
     CONVOLUTIONAL = "convolutional"
     REED_SOLOMON = "reed_solomon"
     CONCATENATED = "concatenated"
+    LDPC = "ldpc"
 
 class ScramblerType(str, Enum):
     NONE = "none"
@@ -307,6 +308,7 @@ class DataRecoveryConfig:
     enable_hamming: bool = True
     enable_reed_solomon: bool = True
     enable_concatenated: bool = True
+    enable_ldpc: bool = True
 
 @dataclass(frozen=True)
 class DataRecoveryAnalysis:
