@@ -983,24 +983,38 @@ class SIHRequestHandler(http.server.BaseHTTPRequestHandler):
             length = int(self.headers.get("Content-Length", 0))
             body = self.rfile.read(length)
 
-            uploads_dir = Path("uploads")
-            uploads_dir.mkdir(exist_ok=True)
+            uploads_dir = Path("uploads").resolve()
+            uploads_dir.mkdir(parents=True, exist_ok=True)
 
             filename = "uploaded_signal.iq"
             file_bytes = body
 
             if "boundary=" in content_type:
-                boundary = content_type.split("boundary=")[-1].strip().encode("utf-8")
-                parts = body.split(b"--" + boundary)
+                boundary_str = content_type.split("boundary=")[-1].strip().strip('"').strip("'")
+                boundary = boundary_str.encode("utf-8")
+                delimiter = b"--" + boundary
+                parts = body.split(delimiter)
                 for part in parts:
-                    if b'filename="' in part:
-                        headers_part, file_data = part.split(b"\r\n\r\n", 1)
-                        file_data = file_data.rstrip(b"\r\n--")
-                        m = re.search(rb'filename="([^"]+)"', headers_part)
-                        if m:
-                            filename = m.group(1).decode("utf-8", errors="ignore")
-                        file_bytes = file_data
-                        break
+                    if b'filename=' in part:
+                        header_end = part.find(b"\r\n\r\n")
+                        if header_end != -1:
+                            headers_part = part[:header_end]
+                            file_data = part[header_end + 4:]
+                            if file_data.endswith(b"\r\n"):
+                                file_data = file_data[:-2]
+                            elif file_data.endswith(b"--\r\n"):
+                                file_data = file_data[:-4]
+
+                            m = re.search(rb'filename="?([^";\r\n]+)"?', headers_part)
+                            if m:
+                                raw_name = m.group(1).decode("utf-8", errors="ignore").strip()
+                                filename = re.sub(r'[^\w\.\-_]', '_', Path(raw_name).name)
+                            file_bytes = file_data
+                            break
+
+            # Ensure recognized extension for pipeline ingestion
+            if not any(filename.lower().endswith(ext) for ext in (".iq", ".raw", ".bin", ".wav", ".sigmf-meta")):
+                filename = filename + ".iq"
 
             file_path = uploads_dir / filename
             with open(file_path, "wb") as f:
