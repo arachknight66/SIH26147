@@ -82,12 +82,11 @@ def test_open_file_dialog_wiring_complex_iq(tmp_path):
     
     # Monkeypatch QFileDialog.getOpenFileName and QInputDialog.getItem
     with patch("signal_analysis.gui.QFileDialog.getOpenFileName", return_value=(str(wav_path), "")):
-        with patch("signal_analysis.gui.QInputDialog.getItem", return_value=("Complex I/Q pair (Ch0=I, Ch1=Q) (stereo_iq)", True)):
-            # We also need to patch window.update_plots to avoid actually painting during a headless test
-            with patch.object(window, "update_plots"):
-                # And capture the recording passed to update_metadata
-                with patch.object(window.sidebar, "update_metadata") as mock_update_metadata:
-                    window.open_file()
+        with patch("signal_analysis.gui.QInputDialog.exec", return_value=1):
+            with patch("signal_analysis.gui.QInputDialog.textValue", return_value="Complex I/Q pair (Ch0=I, Ch1=Q) (stereo_iq)"):
+                with patch.object(window, "update_plots"):
+                    with patch.object(window.sidebar, "update_metadata") as mock_update_metadata:
+                        window.open_file()
                     mock_update_metadata.assert_called_once()
                     recording = mock_update_metadata.call_args[0][0]
                     assert recording.semantic_type == "complex_iq"

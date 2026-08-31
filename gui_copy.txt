@@ -1,11 +1,33 @@
-import re
-import os
+import sys
+import numpy as np
+from typing import Optional
 
-with open('signal_analysis/gui.py', 'r', encoding='utf-8') as f:
-    content = f.read()
+HAS_QT = True
+try:
+    from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                                   QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
+                                   QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
+                                   QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
+    from PySide6.QtCore import Qt
+    import pyqtgraph as pg
+except ImportError:
+    try:
+        from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
+                                     QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
+                                     QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
+                                     QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
+        from PyQt6.QtCore import Qt
+        import pyqtgraph as pg
+    except ImportError:
+        HAS_QT = False
 
-# We need to insert CollapsibleSection and helpers right after "class RawIQDialog(QDialog):"
-helpers_and_collapsible = '''def _format_hz(hz: float) -> str:
+from .models import (SignalRecording, SourceFormat, MetadataValue, 
+                     MetadataStatus, PipelineResult, PipelineStageStatus, FeatureValidity)
+from .loaders import WavReader, RawIQReader, RawIQConfig, read_sigmf
+from .measurements import compute_psd, compute_spectrogram
+from .pipeline import run_full_pipeline
+
+def _format_hz(hz: float) -> str:
     if hz is None: return "Unknown"
     if hz >= 1e6: return f"{hz/1e6:.3f} MHz"
     elif hz >= 1e3: return f"{hz/1e3:.3f} kHz"
@@ -62,18 +84,47 @@ if HAS_QT:
             self.toggle_btn.setChecked(expanded)
             self._on_toggle(expanded)
 
-    class RawIQDialog(QDialog):'''
+    class RawIQDialog(QDialog):
+        def __init__(self, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Raw I/Q Import Parameters")
+            layout = QFormLayout(self)
+            
+            self.dtype_combo = QComboBox()
+            self.dtype_combo.addItems(["int8", "int16", "float32", "complex64", "uint8"])
+            layout.addRow("Data Type:", self.dtype_combo)
+            
+            self.sr_edit = QLineEdit("1000000")
+            layout.addRow("Sample Rate (Hz):", self.sr_edit)
+            
+            self.cf_edit = QLineEdit("0")
+            layout.addRow("Center Freq (Hz):", self.cf_edit)
+            
+            self.order_combo = QComboBox()
+            self.order_combo.addItems(["IQ", "QI"])
+            layout.addRow("I/Q Order:", self.order_combo)
 
-content = content.replace('    class RawIQDialog(QDialog):', helpers_and_collapsible, 1)
+            self.endian_combo = QComboBox()
+            self.endian_combo.addItems(["little", "big"])
+            layout.addRow("Endianness:", self.endian_combo)
+            
+            self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            self.buttons.accepted.connect(self.accept)
+            self.buttons.rejected.connect(self.reject)
+            layout.addRow(self.buttons)
+            
+        def get_config(self) -> RawIQConfig:
+            sr = float(self.sr_edit.text()) if self.sr_edit.text() else None
+            cf = float(self.cf_edit.text()) if self.cf_edit.text() else None
+            return RawIQConfig(
+                dtype=self.dtype_combo.currentText(),
+                iq_order=self.order_combo.currentText(),
+                endian=self.endian_combo.currentText(),
+                sample_rate_hz=sr,
+                center_frequency_hz=cf
+            )
 
-# Now rewrite MetadataSidebar and MainWindow
-sidebar_and_main_target = re.search(r'    class MetadataSidebar\(QScrollArea\):.*', content, re.DOTALL)
-if sidebar_and_main_target:
-    content = content[:sidebar_and_main_target.start()]
-else:
-    print("Could not find MetadataSidebar")
-
-sidebar_and_main = '''    class MetadataSidebar(QScrollArea):
+    class MetadataSidebar(QScrollArea):
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWidgetResizable(True)
@@ -337,18 +388,22 @@ sidebar_and_main = '''    class MetadataSidebar(QScrollArea):
                 return "unable to analyze"
 
         def open_file(self):
+            print('open_file called!')
             path, _ = QFileDialog.getOpenFileName(self, "Open Signal File", "", "All Files (*);;WAV (*.wav);;SigMF (*.sigmf-meta)")
+            print('path:', path)
             if not path:
                 return
                 
             try:
-                if path.endswith(".wav"):
+                if path.endswith(".wav") or path.endswith(".WAV") or path.endswith(".Wav"):
                     import wave
                     with wave.open(path, 'rb') as wf:
                         channels = wf.getnchannels()
+                    print('channels:', channels)
                     
                     mode = "unresolved"
                     if channels == 2:
+                        print('channels is 2, about to call getItem')
                         heuristic = self._guess_stereo_mode_heuristic(path)
                         hint = f"Heuristic: channels appear {heuristic} (not a determination — verify against file provenance)."
                         items = [
@@ -356,12 +411,20 @@ sidebar_and_main = '''    class MetadataSidebar(QScrollArea):
                             "Complex I/Q pair (Ch0=I, Ch1=Q) (stereo_iq)",
                             "Auto-detect is unavailable - I'm not sure"
                         ]
-                        item, ok = QInputDialog.getItem(self, "Stereo WAV Detected", f"Select semantic type for 2-channel WAV:\\n\\n{hint}", items, self._last_wav_mode_idx, False)
-                        if ok and item:
-                            self._last_wav_mode_idx = items.index(item)
-                            if "stereo_real" in item: mode = "stereo_real"
-                            elif "stereo_iq" in item: mode = "stereo_iq"
+                        print('hint:', hint)
+                        try:
+                            item, ok = QInputDialog.getItem(self, "Stereo WAV Detected", f"Select semantic type for 2-channel WAV:
+
+{hint}", items, self._last_wav_mode_idx, False)
+                            print('getItem returned:', item, ok)
+                            if ok and item:
+                                self._last_wav_mode_idx = items.index(item)
+                                if "stereo_real" in item: mode = "stereo_real"
+                                elif "stereo_iq" in item: mode = "stereo_iq"
+                        except Exception as inner_e:
+                            print('getItem exception:', inner_e)
                             
+                    print('mode before WavReader:', mode)
                     reader = WavReader(path, mode=mode)
                     recording = reader.read()
                 elif path.endswith(".sigmf-meta"):
@@ -483,10 +546,3 @@ def run_app():
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
-'''
-
-content += sidebar_and_main
-
-with open('signal_analysis/gui.py', 'w', encoding='utf-8') as f:
-    f.write(content)
-print("Applied gui UX updates.")

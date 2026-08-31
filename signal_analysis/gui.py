@@ -245,9 +245,9 @@ if HAS_QT:
                 self.fec_text.setText(
                     format_stage_status(pipe_res.fec_status, pipe_res.sync_status) + "<br>" +
                     f"<b>Interleaver:</b> {deint.hypothesis.family.name}<br>"
-                    f"<b>FEC Scheme:</b> {fec.scheme_name}<br>"
+                    f"<b>FEC Scheme:</b> {fec.codec_name}<br>"
                     f"<b>FEC Corrected Bits:</b> {fec.corrected_bit_count} ({fec.corrected_bit_fraction*100:.1f}%)<br>"
-                    f"<b>FEC Success:</b> {fec.success}"
+                    f"<b>FEC Success:</b> {fec.decode_success}"
                 )
             else:
                 self.fec_text.setText(format_stage_status(pipe_res.fec_status, pipe_res.sync_status))
@@ -257,13 +257,16 @@ if HAS_QT:
             # Framing
             if pipe_res.framing_status == PipelineStageStatus.COMPLETED and pipe_res.frame_structure:
                 fs = pipe_res.frame_structure
+                sync_name = fs.header_match.pattern.name if fs.header_match.pattern else "Unknown"
+                crc_name = fs.crc_candidate.polynomial_name if fs.crc_candidate else "None"
+                flen = fs.header_length_bits + (fs.payload_length_bits or 0)
                 self.framing_text.setText(
                     format_stage_status(pipe_res.framing_status, pipe_res.fec_status) + "<br>" +
-                    f"<b>Sync Word:</b> {fs.sync_word_name}<br>"
-                    f"<b>Frame Length:</b> {fs.frame_length_bits} bits<br>"
+                    f"<b>Sync Word:</b> {sync_name}<br>"
+                    f"<b>Frame Length:</b> {flen} bits<br>"
                     f"<b>Payload Length:</b> {fs.payload_length_bits} bits<br>"
-                    f"<b>CRC Type:</b> {fs.crc_type}<br>"
-                    f"<b>Valid Frames:</b> {fs.valid_frames_count}/{fs.total_frames_found}"
+                    f"<b>CRC Type:</b> {crc_name}<br>"
+                    f"<b>Valid Frames:</b> N/A"
                 )
             else:
                 self.framing_text.setText(format_stage_status(pipe_res.framing_status, pipe_res.fec_status))
@@ -272,8 +275,10 @@ if HAS_QT:
                 
             # Bitstream
             final_bits = None
-            if pipe_res.frame_structure and len(pipe_res.frame_structure.payloads) > 0:
-                final_bits = np.concatenate(pipe_res.frame_structure.payloads)
+            if pipe_res.frame_structure and pipe_res.fec_result is not None and len(pipe_res.fec_result.decoded_bits) > 0:
+                start = pipe_res.frame_structure.payload_start_bit
+                end = start + (pipe_res.frame_structure.payload_length_bits or len(pipe_res.fec_result.decoded_bits))
+                final_bits = pipe_res.fec_result.decoded_bits[start:end]
             elif pipe_res.fec_result is not None and len(pipe_res.fec_result.decoded_bits) > 0:
                 final_bits = pipe_res.fec_result.decoded_bits
             elif pipe_res.demod_result is not None:
@@ -407,9 +412,20 @@ if HAS_QT:
                             "Complex I/Q pair (Ch0=I, Ch1=Q) (stereo_iq)",
                             "Auto-detect is unavailable - I'm not sure"
                         ]
-                        item, ok = QInputDialog.getItem(self, "Stereo WAV Detected", f"Select semantic type for 2-channel WAV:\n\n{hint}", items, self._last_wav_mode_idx, False)
-                        if ok and item:
-                            self._last_wav_mode_idx = items.index(item)
+                        dialog = QInputDialog(self)
+                        dialog.setWindowTitle("Stereo WAV Detected")
+                        dialog.setLabelText(f"Select semantic type for 2-channel WAV:\n\n{hint}")
+                        dialog.setComboBoxItems(items)
+                        dialog.setOption(QInputDialog.UseListViewForComboBoxItems, False)
+                        dialog.setComboBoxEditable(False)
+                        dialog.setWindowModality(Qt.ApplicationModal)
+                        
+                        QApplication.processEvents()
+                        
+                        if dialog.exec() == QDialog.Accepted:
+                            item = dialog.textValue()
+                            if item in items:
+                                self._last_wav_mode_idx = items.index(item)
                             if "stereo_real" in item: mode = "stereo_real"
                             elif "stereo_iq" in item: mode = "stereo_iq"
                             
