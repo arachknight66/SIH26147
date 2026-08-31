@@ -71,227 +71,133 @@ if HAS_QT:
             )
 
     class MetadataSidebar(QScrollArea):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setWidgetResizable(True)
-            self.content = QWidget()
-            self.layout = QVBoxLayout(self.content)
-            self.setWidget(self.content)
+    def __init__(self):
+        super().__init__()
+        self.setWidgetResizable(True)
+        content = QWidget()
+        self.layout = QVBoxLayout(content)
+        self.setWidget(content)
+        
+        self.labels = {}
+        fields = ["Source Format", "Sample Count", "DType", "Semantic Type", "Sample Rate", "Center Frequency"]
+        for f in fields:
+            lbl = QLabel(f"{f}: ")
+            self.layout.addWidget(lbl)
+            self.labels[f] = lbl
             
-            self.labels = {}
-            for key in ["Source Format", "Sample Count", "DType", "Semantic Type", "Sample Rate", "Center Frequency"]:
-                lbl = QLabel(f"{key}: N/A")
-                self.layout.addWidget(lbl)
-                self.labels[key] = lbl
-                
-            # Phase 2 UI elements
-            self.layout.addWidget(QLabel("--- Phase 2 Analysis ---"))
+        self.layout.addWidget(QLabel("--- Pipeline Status ---"))
+        self.stage_lbls = {}
+        for s in ["Hypothesis", "Sync", "FEC", "Framing"]:
+            lbl = QLabel(f"{s}: PENDING")
+            self.layout.addWidget(lbl)
+            self.stage_lbls[s] = lbl
             
-            self.symbol_rate_lbl = QLabel("Symbol Rate: N/A")
-            self.layout.addWidget(self.symbol_rate_lbl)
-            
-            self.hyp_table = QTableWidget(0, 3)
-            self.hyp_table.setHorizontalHeaderLabels(["Modulation", "Score", "Tier"])
-            self.hyp_table.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Stretch)
-            self.hyp_table.itemSelectionChanged.connect(self.on_hyp_selected)
-            self.layout.addWidget(self.hyp_table)
-            
-            self.evidence_lbl = QLabel("Evidence Breakdown:\nSelect a hypothesis")
-            self.evidence_lbl.setWordWrap(True)
-            self.layout.addWidget(self.evidence_lbl)
-            
-            self.diagnostics_label = QLabel("--- Diagnostics ---")
-            self.layout.addWidget(self.diagnostics_label)
-            
-            self.layout.addWidget(QLabel("--- Phase 3 Sync ---"))
-            self.sync_status_lbl = QLabel("Sync Status: N/A")
-            self.layout.addWidget(self.sync_status_lbl)
-            self.cfo_lbl = QLabel("CFO: N/A")
-            self.layout.addWidget(self.cfo_lbl)
-            self.evm_lbl = QLabel("EVM: N/A")
-            self.layout.addWidget(self.evm_lbl)
-            
-            self.bitstream_text = QTextEdit()
-            self.bitstream_text.setReadOnly(True)
-            self.bitstream_text.setMaximumHeight(80)
-            self.layout.addWidget(QLabel("Bitstream (Hex):"))
-            self.layout.addWidget(self.bitstream_text)
-            
-            self.llr_plot = pg.PlotWidget(title="LLR Histogram")
-            self.llr_plot.setMaximumHeight(150)
-            self.layout.addWidget(self.llr_plot)
-            
-            self.layout.addWidget(QLabel("--- Phase 4 Deint & FEC ---"))
-            self.deint_lbl = QLabel("Deinterleaver: N/A")
-            self.layout.addWidget(self.deint_lbl)
-            self.fec_lbl = QLabel("FEC: N/A")
-            self.layout.addWidget(self.fec_lbl)
-            
-            self.final_bitstream_text = QTextEdit()
-            self.final_bitstream_text.setReadOnly(True)
-            self.final_bitstream_text.setMaximumHeight(80)
-            self.layout.addWidget(QLabel("Final Recovered (Hex):"))
-            self.layout.addWidget(self.final_bitstream_text)
+        self.layout.addWidget(QLabel("--- Analysis Details ---"))
+        self.details_lbl = QLabel("Details...")
+        self.details_lbl.setWordWrap(True)
+        self.layout.addWidget(self.details_lbl)
+        
+        self.llr_plot = pg.PlotWidget(title="LLR Histogram")
+        self.llr_plot.setMaximumHeight(120)
+        self.layout.addWidget(self.llr_plot)
+        
+        self.layout.addWidget(QLabel("Recovered Bits (Hex):"))
+        self.final_bitstream_text = QTextEdit()
+        self.final_bitstream_text.setReadOnly(True)
+        self.final_bitstream_text.setMaximumHeight(80)
+        self.layout.addWidget(self.final_bitstream_text)
+        
+    def add_diag(self, diag):
+        lbl = QLabel(f"[{diag.severity.value}] {diag.code}: {diag.message}")
+        if diag.severity.value == "ERROR":
+            lbl.setStyleSheet("color: red")
+        elif diag.severity.value == "WARNING":
+            lbl.setStyleSheet("color: orange")
+        self.layout.insertWidget(len(self.labels), lbl)
 
-
-            self.layout.addStretch()
+    def update_metadata(self, recording: SignalRecording):
+        # Update basics
+        self.labels["Source Format"].setText(f"Source Format: {recording.source_format.value}")
+        self.labels["Sample Count"].setText(f"Sample Count: {len(recording.samples)}")
+        self.labels["DType"].setText(f"DType: {recording.original_dtype}")
+        self.labels["Semantic Type"].setText(f"Semantic Type: {recording.semantic_type}")
+        
+        sr = recording.sample_rate_hz
+        self.labels["Sample Rate"].setText(f"Sample Rate: {sr.value if sr.value else 'N/A'} [{sr.status.value}]")
+        cf = recording.center_frequency_hz
+        self.labels["Center Frequency"].setText(f"Center Frequency: {cf.value if cf.value else 'N/A'} [{cf.status.value}]")
+        
+        from .pipeline import run_full_pipeline
+        pipe_res = run_full_pipeline(recording)
+        
+        # Display Pipeline Stage Statuses
+        self.stage_lbls["Hypothesis"].setText(f"Hypothesis: {pipe_res.hypothesis_status.value}")
+        self.stage_lbls["Sync"].setText(f"Sync: {pipe_res.sync_status.value}")
+        self.stage_lbls["FEC"].setText(f"FEC: {pipe_res.fec_status.value}")
+        self.stage_lbls["Framing"].setText(f"Framing: {pipe_res.framing_status.value}")
+        
+        details = ""
+        if pipe_res.top_hypothesis:
+            h = pipe_res.top_hypothesis
+            details += f"Top Hyp: {h.label} [{h.status.value}] (Score {h.score:.2f})
+"
             
-            self.current_hypotheses = []
+        if pipe_res.demod_result:
+            s = pipe_res.demod_result.sync_result
+            details += f"Sync EVM: {s.evm_percent:.1f}% 
+CFO: {s.cfo_estimate:.2f} {s.cfo_unit}
+"
             
-        def update_metadata(self, recording: SignalRecording):
-            self.labels["Source Format"].setText(f"Source Format: {recording.source_format.value}")
-            self.labels["Sample Count"].setText(f"Sample Count: {len(recording.samples)}")
-            self.labels["DType"].setText(f"DType: {recording.original_dtype}")
-            self.labels["Semantic Type"].setText(f"Semantic Type: {recording.semantic_type}")
-            
-            sr = recording.sample_rate_hz
-            self.labels["Sample Rate"].setText(f"Sample Rate: {sr.value if sr.value else 'N/A'} [{sr.status.value}]")
-            
-            cf = recording.center_frequency_hz
-            self.labels["Center Frequency"].setText(f"Center Frequency: {cf.value if cf.value else 'N/A'} [{cf.status.value}]")
-            
-            # Clear old diagnostics
-            while self.layout.count() > 11:
-                item = self.layout.takeAt(11)
-                if item.widget():
-                    item.widget().deleteLater()
-                    
-            for diag in recording.diagnostics:
-                self.add_diag(diag)
-                
-            # Phase 2: Hypothesis and Feature extraction
-            if recording.samples.ndim > 1:
-                import dataclasses
-                rec_1d = dataclasses.replace(recording, samples=recording.samples[:, 0])
-            else:
-                rec_1d = recording
-
-            fv = extract_all_features(rec_1d)
-            c_scores = compute_classical_scores(fv)
-            
-            # Fake SNR estimate based on dynamic range / validity?
-            snr_est = 20.0 # Placeholder for GUI MVP
-            
-            hypotheses, selected, is_ambig, is_unk = evaluate_and_rank_hypotheses(fv, c_scores, snr_est, {}, rec_1d)
-            self.current_hypotheses = hypotheses
-            
-            cons_score, cyc_diag = check_temporal_consistency(rec_1d, {})
-            
-            # Phase 3 Synchronization
-            self.sync_results = attempt_synchronization_multi_hypothesis(rec_1d, hypotheses, {})
-            self.display_sync_result(self.sync_results[0] if self.sync_results else None)
-            
-            # Phase 4 Deinterleave & FEC
-            from .fec_concatenated import decode_concatenated
-            from .models import DeinterleavingResult, DeinterleaverHypothesis, HypothesisStatus, DeinterleaverFamily
-            
-            # Simple run on best sync result
-            best_sync = self.sync_results[0] if self.sync_results else None
-            if best_sync and best_sync.hypothesis_confirmed:
-                vit_res, rs_res, deint_res = decode_concatenated(best_sync)
-                self.display_fec_result(vit_res, rs_res, deint_res)
-            else:
-                self.deint_lbl.setText("Deinterleaver: None (No Sync)")
-                self.fec_lbl.setText("FEC: None (No Sync)")
-
-
-            if cyc_diag:
-                self.add_diag(cyc_diag)
-                
-            # Update Table
-            self.hyp_table.setRowCount(0)
-            for h in hypotheses:
-                row = self.hyp_table.rowCount()
-                self.hyp_table.insertRow(row)
-                
-                label_item = QTableWidgetItem(h.label)
-                if selected and h.label == selected.label:
-                    label_item.setBackground(Qt.GlobalColor.green)
-                elif is_ambig and h.status.value == "AMBIGUOUS":
-                    label_item.setBackground(Qt.GlobalColor.yellow)
-                    
-                self.hyp_table.setItem(row, 0, label_item)
-                self.hyp_table.setItem(row, 1, QTableWidgetItem(f"{h.score:.2f}"))
-                self.hyp_table.setItem(row, 2, QTableWidgetItem(h.quality_tier))
-                
-            # Update Symbol Rate
-            if hypotheses and hypotheses[0].candidate_parameters.symbol_rate:
-                cp = hypotheses[0].candidate_parameters
-                self.symbol_rate_lbl.setText(f"Symbol Rate: {cp.symbol_rate:.4e} {cp.symbol_rate_unit}")
-            else:
-                self.symbol_rate_lbl.setText("Symbol Rate: N/A")
-                
-        def on_hyp_selected(self):
-            sel = self.hyp_table.selectedItems()
-            if not sel: return
-            row = sel[0].row()
-            h = self.current_hypotheses[row]
-            
-            ev_text = f"Status: {h.status.value}\n\nEvidence:\n"
-            for k, v in h.evidence.items():
-                ev_text += f"- {k}: {v:.2f}\n"
-            
-            if h.contradictions:
-                ev_text += "\nContradictions:\n"
-                for c in h.contradictions:
-                    ev_text += f"- {c}\n"
-                    
-            self.evidence_lbl.setText(ev_text)
-            
-        def add_diag(self, diag):
-            lbl = QLabel(f"{diag.severity.value}: {diag.message}")
-            if diag.severity.value == "ERROR":
-                lbl.setStyleSheet("color: red;")
-            elif diag.severity.value == "WARNING":
-                lbl.setStyleSheet("color: orange;")
-            self.layout.insertWidget(self.layout.count() - 1, lbl)
-
-    
-        def display_sync_result(self, res):
-            if not res:
-                self.sync_status_lbl.setText("Sync Status: No Attempts")
-                return
-                
-            sync = res.sync_result
-            status = "LOCKED" if res.hypothesis_confirmed else "FAILED"
-            self.sync_status_lbl.setText(f"Sync Status: {status} (Clk: {sync.symbol_clock_locked}, Carrier: {sync.carrier_locked})\nLQ: {sync.lock_quality_metric:.4f}")
-            self.cfo_lbl.setText(f"CFO: {sync.cfo_estimate:.2e} {sync.cfo_unit}")
-            self.evm_lbl.setText(f"EVM: {sync.evm_percent:.2f}%")
-            
-            if len(res.hard_bits) > 0:
-                # convert to hex
-                hex_str = np.packbits(res.hard_bits, bitorder='big').tobytes().hex()
-                self.bitstream_text.setText(hex_str)
-                
-                # plot LLR histogram
-                self.llr_plot.clear()
-                y, x = np.histogram(res.soft_llrs, bins=50)
+            # Plot LLRs
+            self.llr_plot.clear()
+            llrs = pipe_res.demod_result.soft_llrs
+            if len(llrs) > 0:
+                y, x = np.histogram(llrs, bins=50)
                 bg = pg.BarGraphItem(x0=x[:-1], x1=x[1:], height=y, brush='b')
                 self.llr_plot.addItem(bg)
                 
-            # We should also tell the main window to update the constellation to synced symbols
-            if hasattr(self, "parent_window") and self.parent_window:
-                self.parent_window.update_synced_constellation(res)
-
-    
-        def display_fec_result(self, vit_res, rs_res, deint_res):
-            dh = deint_res.hypothesis
-            self.deint_lbl.setText(f"Deinterleaver: {dh.family.value}\nParams: {dh.parameters}\nScore: {dh.score:.2f} (CV: {deint_res.cross_validation_score:.2f})")
+            if hasattr(self, 'parent_window') and self.parent_window:
+                self.parent_window.update_synced_constellation(pipe_res.demod_result)
+                
+        if pipe_res.fec_result:
+            r = pipe_res.fec_result
+            details += f"FEC: {r.codec_name} -> {r.decode_success}
+Corrected: {r.corrected_bit_count} bits
+"
+            if r.diagnostics:
+                details += f"FEC Diag: {r.diagnostics[0].message}
+"
+                
+        if pipe_res.frame_structure:
+            fs = pipe_res.frame_structure
+            details += f"Framing Status: [{fs.status.value}]
+"
+            details += f"Sync Word: {fs.header_match.pattern.name} at {fs.header_match.bit_offset}
+"
+            details += f"Periodicity: {fs.header_match.periodicity_consistent}
+"
+            if fs.crc_candidate:
+                details += f"CRC: {fs.crc_candidate.polynomial_name} verified={fs.crc_candidate.verified}
+"
+                
+        self.details_lbl.setText(details)
+        
+        final_bits = None
+        if pipe_res.fec_result:
+            final_bits = pipe_res.fec_result.decoded_bits
+        elif pipe_res.demod_result:
+            final_bits = pipe_res.demod_result.hard_bits
             
-            # Warnings
-            fec_status = "SUCCESS" if rs_res.decode_success else "FAIL"
-            fec_str = f"FEC: {rs_res.codec_name} -> {fec_status}\n"
-            fec_str += f"Inner Margin: {vit_res.pre_correction_metric:.2f}\n"
-            fec_str += f"Outer Corrected: {rs_res.corrected_bit_count} bits ({rs_res.corrected_bit_fraction*100:.1f}%)"
-            
-            for diag in rs_res.diagnostics:
-                if diag.severity.value == "WARNING":
-                    fec_str += f"\n[WARNING: {diag.message}]"
-            
-            self.fec_lbl.setText(fec_str)
-            
-            hex_str = np.packbits(rs_res.decoded_bits, bitorder='big').tobytes().hex()
+        if final_bits is not None and len(final_bits) > 0:
+            import numpy as np
+            # Pad to 8
+            pad = (8 - len(final_bits) % 8) % 8
+            if pad > 0:
+                final_bits = np.pad(final_bits, (0, pad))
+            hex_str = np.packbits(final_bits, bitorder='big').tobytes().hex()
             self.final_bitstream_text.setText(hex_str)
+        else:
+            self.final_bitstream_text.setText("N/A")
 
     class MainWindow(QMainWindow):
         def __init__(self):
