@@ -1,33 +1,11 @@
-import sys
-import numpy as np
-from typing import Optional
+import re
+import os
 
-HAS_QT = True
-try:
-    from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                   QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
-                                   QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
-                                   QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
-    from PySide6.QtCore import Qt
-    import pyqtgraph as pg
-except ImportError:
-    try:
-        from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                     QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
-                                     QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
-                                     QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
-        from PyQt6.QtCore import Qt
-        import pyqtgraph as pg
-    except ImportError:
-        HAS_QT = False
+with open('signal_analysis/gui.py', 'r', encoding='utf-8') as f:
+    content = f.read()
 
-from .models import (SignalRecording, SourceFormat, MetadataValue, 
-                     MetadataStatus, PipelineResult, PipelineStageStatus, FeatureValidity)
-from .loaders import WavReader, RawIQReader, RawIQConfig, read_sigmf
-from .measurements import compute_psd, compute_spectrogram
-from .pipeline import run_full_pipeline
-
-def _format_hz(hz: float) -> str:
+# We need to insert CollapsibleSection and helpers right after "class RawIQDialog(QDialog):"
+helpers_and_collapsible = '''def _format_hz(hz: float) -> str:
     if hz is None: return "Unknown"
     if hz >= 1e6: return f"{hz/1e6:.3f} MHz"
     elif hz >= 1e3: return f"{hz/1e3:.3f} kHz"
@@ -84,47 +62,18 @@ if HAS_QT:
             self.toggle_btn.setChecked(expanded)
             self._on_toggle(expanded)
 
-    class RawIQDialog(QDialog):
-        def __init__(self, parent=None):
-            super().__init__(parent)
-            self.setWindowTitle("Raw I/Q Import Parameters")
-            layout = QFormLayout(self)
-            
-            self.dtype_combo = QComboBox()
-            self.dtype_combo.addItems(["int8", "int16", "float32", "complex64", "uint8"])
-            layout.addRow("Data Type:", self.dtype_combo)
-            
-            self.sr_edit = QLineEdit("1000000")
-            layout.addRow("Sample Rate (Hz):", self.sr_edit)
-            
-            self.cf_edit = QLineEdit("0")
-            layout.addRow("Center Freq (Hz):", self.cf_edit)
-            
-            self.order_combo = QComboBox()
-            self.order_combo.addItems(["IQ", "QI"])
-            layout.addRow("I/Q Order:", self.order_combo)
+    class RawIQDialog(QDialog):'''
 
-            self.endian_combo = QComboBox()
-            self.endian_combo.addItems(["little", "big"])
-            layout.addRow("Endianness:", self.endian_combo)
-            
-            self.buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
-            self.buttons.accepted.connect(self.accept)
-            self.buttons.rejected.connect(self.reject)
-            layout.addRow(self.buttons)
-            
-        def get_config(self) -> RawIQConfig:
-            sr = float(self.sr_edit.text()) if self.sr_edit.text() else None
-            cf = float(self.cf_edit.text()) if self.cf_edit.text() else None
-            return RawIQConfig(
-                dtype=self.dtype_combo.currentText(),
-                iq_order=self.order_combo.currentText(),
-                endian=self.endian_combo.currentText(),
-                sample_rate_hz=sr,
-                center_frequency_hz=cf
-            )
+content = content.replace('    class RawIQDialog(QDialog):', helpers_and_collapsible, 1)
 
-    class MetadataSidebar(QScrollArea):
+# Now rewrite MetadataSidebar and MainWindow
+sidebar_and_main_target = re.search(r'    class MetadataSidebar\(QScrollArea\):.*', content, re.DOTALL)
+if sidebar_and_main_target:
+    content = content[:sidebar_and_main_target.start()]
+else:
+    print("Could not find MetadataSidebar")
+
+sidebar_and_main = '''    class MetadataSidebar(QScrollArea):
         def __init__(self, parent=None):
             super().__init__(parent)
             self.setWidgetResizable(True)
@@ -407,7 +356,7 @@ if HAS_QT:
                             "Complex I/Q pair (Ch0=I, Ch1=Q) (stereo_iq)",
                             "Auto-detect is unavailable - I'm not sure"
                         ]
-                        item, ok = QInputDialog.getItem(self, "Stereo WAV Detected", f"Select semantic type for 2-channel WAV:\n\n{hint}", items, self._last_wav_mode_idx, False)
+                        item, ok = QInputDialog.getItem(self, "Stereo WAV Detected", f"Select semantic type for 2-channel WAV:\\n\\n{hint}", items, self._last_wav_mode_idx, False)
                         if ok and item:
                             self._last_wav_mode_idx = items.index(item)
                             if "stereo_real" in item: mode = "stereo_real"
@@ -534,3 +483,10 @@ def run_app():
     window = MainWindow()
     window.show()
     sys.exit(app.exec())
+'''
+
+content += sidebar_and_main
+
+with open('signal_analysis/gui.py', 'w', encoding='utf-8') as f:
+    f.write(content)
+print("Applied gui UX updates.")
