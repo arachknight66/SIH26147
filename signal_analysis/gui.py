@@ -27,6 +27,7 @@ from .measurements import compute_psd, compute_spectrogram
 from .features import extract_all_features
 from .classifier import compute_classical_scores
 from .hypotheses import evaluate_and_rank_hypotheses, check_temporal_consistency
+from .demodulation import attempt_synchronization_multi_hypothesis
 
 if HAS_QT:
     class RawIQDialog(QDialog):
@@ -101,6 +102,25 @@ if HAS_QT:
             
             self.diagnostics_label = QLabel("--- Diagnostics ---")
             self.layout.addWidget(self.diagnostics_label)
+            
+            self.layout.addWidget(QLabel("--- Phase 3 Sync ---"))
+            self.sync_status_lbl = QLabel("Sync Status: N/A")
+            self.layout.addWidget(self.sync_status_lbl)
+            self.cfo_lbl = QLabel("CFO: N/A")
+            self.layout.addWidget(self.cfo_lbl)
+            self.evm_lbl = QLabel("EVM: N/A")
+            self.layout.addWidget(self.evm_lbl)
+            
+            self.bitstream_text = QTextEdit()
+            self.bitstream_text.setReadOnly(True)
+            self.bitstream_text.setMaximumHeight(80)
+            self.layout.addWidget(QLabel("Bitstream (Hex):"))
+            self.layout.addWidget(self.bitstream_text)
+            
+            self.llr_plot = pg.PlotWidget(title="LLR Histogram")
+            self.llr_plot.setMaximumHeight(150)
+            self.layout.addWidget(self.llr_plot)
+
             self.layout.addStretch()
             
             self.current_hypotheses = []
@@ -143,6 +163,11 @@ if HAS_QT:
             self.current_hypotheses = hypotheses
             
             cons_score, cyc_diag = check_temporal_consistency(rec_1d, {})
+            
+            # Phase 3 Synchronization
+            self.sync_results = attempt_synchronization_multi_hypothesis(rec_1d, hypotheses, {})
+            self.display_sync_result(self.sync_results[0] if self.sync_results else None)
+
             if cyc_diag:
                 self.add_diag(cyc_diag)
                 
@@ -194,10 +219,37 @@ if HAS_QT:
                 lbl.setStyleSheet("color: orange;")
             self.layout.insertWidget(self.layout.count() - 1, lbl)
 
+    
+        def display_sync_result(self, res):
+            if not res:
+                self.sync_status_lbl.setText("Sync Status: No Attempts")
+                return
+                
+            sync = res.sync_result
+            status = "LOCKED" if res.hypothesis_confirmed else "FAILED"
+            self.sync_status_lbl.setText(f"Sync Status: {status} (Clk: {sync.symbol_clock_locked}, Carrier: {sync.carrier_locked})\nLQ: {sync.lock_quality_metric:.4f}")
+            self.cfo_lbl.setText(f"CFO: {sync.cfo_estimate:.2e} {sync.cfo_unit}")
+            self.evm_lbl.setText(f"EVM: {sync.evm_percent:.2f}%")
+            
+            if len(res.hard_bits) > 0:
+                # convert to hex
+                hex_str = np.packbits(res.hard_bits, bitorder='big').tobytes().hex()
+                self.bitstream_text.setText(hex_str)
+                
+                # plot LLR histogram
+                self.llr_plot.clear()
+                y, x = np.histogram(res.soft_llrs, bins=50)
+                bg = pg.BarGraphItem(x0=x[:-1], x1=x[1:], height=y, brush='b')
+                self.llr_plot.addItem(bg)
+                
+            # We should also tell the main window to update the constellation to synced symbols
+            if hasattr(self, "parent_window") and self.parent_window:
+                self.parent_window.update_synced_constellation(res)
+
     class MainWindow(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("Signal Analysis MVP - Phase 2")
+            self.setWindowTitle("Signal Analysis MVP - Phase 3")
             self.resize(1200, 800)
             
             self.central = QWidget()
@@ -242,6 +294,7 @@ if HAS_QT:
             self.sidebar_layout.addWidget(self.open_btn)
             
             self.sidebar = MetadataSidebar()
+            self.sidebar.parent_window = self
             self.sidebar_layout.addWidget(self.sidebar)
             
         def open_file(self):
@@ -271,6 +324,32 @@ if HAS_QT:
                 traceback.print_exc()
                 print(f"Error loading file: {e}")
                 
+        
+        def update_synced_constellation(self, res):
+            self.constellation_plot.clear()
+            
+            # redraw axes
+            self.constellation_plot.addLine(x=0, pen=pg.mkPen('w', style=Qt.PenStyle.DashLine))
+            self.constellation_plot.addLine(y=0, pen=pg.mkPen('w', style=Qt.PenStyle.DashLine))
+            
+            if res and len(res.symbol_decisions) > 0:
+                c_data = res.symbol_decisions
+                
+                # Decision boundaries based on label
+                label = res.source_hypothesis_label
+                if label == "BPSK":
+                    self.constellation_plot.addLine(x=0, pen=pg.mkPen('y'))
+                elif label == "QPSK":
+                    self.constellation_plot.addLine(x=0, pen=pg.mkPen('y'))
+                    self.constellation_plot.addLine(y=0, pen=pg.mkPen('y'))
+                
+                scatter = pg.ScatterPlotItem(size=3, pen=pg.mkPen(None), brush=pg.mkBrush(0, 255, 0, 150))
+                scatter.setData(x=c_data.real, y=c_data.imag)
+                self.constellation_plot.addItem(scatter)
+            else:
+                self.constellation_plot.addItem(self.constellation_scatter) # Re-add original scatter?
+                # or just leave empty / fallback
+
         def update_plots(self, recording: SignalRecording):
             self.waveform_plot.clear()
             
