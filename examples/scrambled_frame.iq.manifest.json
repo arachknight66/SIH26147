@@ -1,5 +1,0 @@
-{
-  "ground_truth_modulation": "QPSK",
-  "scrambler": "ITU_V29",
-  "expected_status": "INDEPENDENTLY_VERIFIED"
-}

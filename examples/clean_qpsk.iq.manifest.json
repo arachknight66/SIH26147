@@ -1,5 +1,0 @@
-{
-  "ground_truth_modulation": "QPSK",
-  "fec": "NONE",
-  "expected_status": "INDEPENDENTLY_VERIFIED"
-}
