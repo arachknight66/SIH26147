@@ -7,7 +7,7 @@ try:
     from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                    QHBoxLayout, QLabel, QPushButton, QFileDialog,
                                    QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
-                                   QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter)
+                                   QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
     from PySide6.QtCore import Qt
     import pyqtgraph as pg
 except ImportError:
@@ -15,7 +15,7 @@ except ImportError:
         from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                      QHBoxLayout, QLabel, QPushButton, QFileDialog,
                                      QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
-                                     QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter)
+                                     QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
         from PyQt6.QtCore import Qt
         import pyqtgraph as pg
     except ImportError:
