@@ -127,16 +127,22 @@ if HAS_QT:
                 self.add_diag(diag)
                 
             # Phase 2: Hypothesis and Feature extraction
-            fv = extract_all_features(recording)
+            if recording.samples.ndim > 1:
+                import dataclasses
+                rec_1d = dataclasses.replace(recording, samples=recording.samples[:, 0])
+            else:
+                rec_1d = recording
+
+            fv = extract_all_features(rec_1d)
             c_scores = compute_classical_scores(fv)
             
             # Fake SNR estimate based on dynamic range / validity?
             snr_est = 20.0 # Placeholder for GUI MVP
             
-            hypotheses, selected, is_ambig, is_unk = evaluate_and_rank_hypotheses(fv, c_scores, snr_est, {}, recording)
+            hypotheses, selected, is_ambig, is_unk = evaluate_and_rank_hypotheses(fv, c_scores, snr_est, {}, rec_1d)
             self.current_hypotheses = hypotheses
             
-            cons_score, cyc_diag = check_temporal_consistency(recording, {})
+            cons_score, cyc_diag = check_temporal_consistency(rec_1d, {})
             if cyc_diag:
                 self.add_diag(cyc_diag)
                 
@@ -310,12 +316,15 @@ if HAS_QT:
             # Constellation sub-sampled to ~2000 points
             max_const = 2000
             if n_samples > max_const:
-                c_step = n_samples // max_const
+                c_step = max(1, n_samples // max_const)
                 c_data = recording.samples[::c_step]
             else:
                 c_data = recording.samples
                 
-            self.constellation_scatter.setData(x=c_data.real, y=c_data.imag)
+            if c_data.ndim > 1:
+                self.constellation_scatter.setData(x=c_data[:, 0].real, y=c_data[:, 1].real)
+            else:
+                self.constellation_scatter.setData(x=c_data.real, y=c_data.imag)
 
 def run_app():
     if not HAS_QT:
