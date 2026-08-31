@@ -120,6 +120,19 @@ if HAS_QT:
             self.llr_plot = pg.PlotWidget(title="LLR Histogram")
             self.llr_plot.setMaximumHeight(150)
             self.layout.addWidget(self.llr_plot)
+            
+            self.layout.addWidget(QLabel("--- Phase 4 Deint & FEC ---"))
+            self.deint_lbl = QLabel("Deinterleaver: N/A")
+            self.layout.addWidget(self.deint_lbl)
+            self.fec_lbl = QLabel("FEC: N/A")
+            self.layout.addWidget(self.fec_lbl)
+            
+            self.final_bitstream_text = QTextEdit()
+            self.final_bitstream_text.setReadOnly(True)
+            self.final_bitstream_text.setMaximumHeight(80)
+            self.layout.addWidget(QLabel("Final Recovered (Hex):"))
+            self.layout.addWidget(self.final_bitstream_text)
+
 
             self.layout.addStretch()
             
@@ -167,6 +180,20 @@ if HAS_QT:
             # Phase 3 Synchronization
             self.sync_results = attempt_synchronization_multi_hypothesis(rec_1d, hypotheses, {})
             self.display_sync_result(self.sync_results[0] if self.sync_results else None)
+            
+            # Phase 4 Deinterleave & FEC
+            from .fec_concatenated import decode_concatenated
+            from .models import DeinterleavingResult, DeinterleaverHypothesis, HypothesisStatus, DeinterleaverFamily
+            
+            # Simple run on best sync result
+            best_sync = self.sync_results[0] if self.sync_results else None
+            if best_sync and best_sync.hypothesis_confirmed:
+                vit_res, rs_res, deint_res = decode_concatenated(best_sync)
+                self.display_fec_result(vit_res, rs_res, deint_res)
+            else:
+                self.deint_lbl.setText("Deinterleaver: None (No Sync)")
+                self.fec_lbl.setText("FEC: None (No Sync)")
+
 
             if cyc_diag:
                 self.add_diag(cyc_diag)
@@ -246,10 +273,30 @@ if HAS_QT:
             if hasattr(self, "parent_window") and self.parent_window:
                 self.parent_window.update_synced_constellation(res)
 
+    
+        def display_fec_result(self, vit_res, rs_res, deint_res):
+            dh = deint_res.hypothesis
+            self.deint_lbl.setText(f"Deinterleaver: {dh.family.value}\nParams: {dh.parameters}\nScore: {dh.score:.2f} (CV: {deint_res.cross_validation_score:.2f})")
+            
+            # Warnings
+            fec_status = "SUCCESS" if rs_res.decode_success else "FAIL"
+            fec_str = f"FEC: {rs_res.codec_name} -> {fec_status}\n"
+            fec_str += f"Inner Margin: {vit_res.pre_correction_metric:.2f}\n"
+            fec_str += f"Outer Corrected: {rs_res.corrected_bit_count} bits ({rs_res.corrected_bit_fraction*100:.1f}%)"
+            
+            for diag in rs_res.diagnostics:
+                if diag.severity.value == "WARNING":
+                    fec_str += f"\n[WARNING: {diag.message}]"
+            
+            self.fec_lbl.setText(fec_str)
+            
+            hex_str = np.packbits(rs_res.decoded_bits, bitorder='big').tobytes().hex()
+            self.final_bitstream_text.setText(hex_str)
+
     class MainWindow(QMainWindow):
         def __init__(self):
             super().__init__()
-            self.setWindowTitle("Signal Analysis MVP - Phase 3")
+            self.setWindowTitle("Signal Analysis MVP - Phase 4")
             self.resize(1200, 800)
             
             self.central = QWidget()
