@@ -44,7 +44,7 @@ def _detect_peaks_in_range(pxx, f, min_f=0.02, max_f=0.48):
     return f_est, confidence
 
 def estimate_rate_transition_energy(samples: np.ndarray) -> Tuple[Optional[float], float]:
-    """FFT of |x[n]-x[n-1]|^2"""
+    samples = samples[:262144]
     diff = np.abs(samples[1:] - samples[:-1])**2
     if len(diff) < 64:
         return None, 0.0
@@ -52,7 +52,7 @@ def estimate_rate_transition_energy(samples: np.ndarray) -> Tuple[Optional[float
     return _detect_peaks_in_range(pxx, f)
 
 def estimate_rate_squared_magnitude(samples: np.ndarray) -> Tuple[Optional[float], float]:
-    """FFT of |x[n]|^2 (Gardner-style)"""
+    samples = samples[:262144]
     mag2 = np.abs(samples)**2
     if len(mag2) < 64:
         return None, 0.0
@@ -60,7 +60,7 @@ def estimate_rate_squared_magnitude(samples: np.ndarray) -> Tuple[Optional[float
     return _detect_peaks_in_range(pxx, f)
 
 def estimate_rate_autocorrelation(samples: np.ndarray) -> Tuple[Optional[float], float]:
-    """Autocorrelation secondary peak"""
+    samples = samples[:262144]
     mag = np.abs(samples)
     mag_zm = mag - np.mean(mag)
     

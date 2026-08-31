@@ -192,15 +192,19 @@ def compute_spectrogram(recording: SignalRecording, nperseg: int = 256) -> Spect
         fs = 1.0
         unit = "cycles/sample"
         
+    # Limit max samples to prevent massive UI freezes when generating waterfall images
+    max_samples = 262144
+    samples = recording.samples[:max_samples]
+        
     if is_complex:
-        f, t, Sxx = signal.spectrogram(recording.samples, fs=fs, nperseg=nperseg, return_onesided=False, window='hann')
+        f, t, Sxx = signal.spectrogram(samples, fs=fs, nperseg=nperseg, return_onesided=False, window='hann')
         f = np.fft.fftshift(f)
         Sxx = np.fft.fftshift(Sxx, axes=0)
     else:
-        if recording.samples.ndim > 1:
-            data = recording.samples[:, 0].real
+        if samples.ndim > 1:
+            data = samples[:, 0].real
         else:
-            data = recording.samples.real
+            data = samples.real
         f, t, Sxx = signal.spectrogram(data, fs=fs, nperseg=nperseg, return_onesided=True, window='hann')
         
     return SpectrogramResult(f, t, Sxx, unit)

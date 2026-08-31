@@ -273,14 +273,18 @@ class ModulationFeatureVector:
 
 def extract_all_features(recording: SignalRecording) -> ModulationFeatureVector:
     """Extract all features working on a RMS-normalized copy."""
+    # Truncate to avoid massive UI freezes on giant files
+    max_samples = 262144
+    process_samples = recording.samples[:max_samples]
+    
     # RMS Normalize
-    mag = np.abs(recording.samples)
+    mag = np.abs(process_samples)
     rms = np.sqrt(np.mean(mag**2))
     
     if rms > 1e-9:
-        norm_samples = recording.samples / rms
+        norm_samples = process_samples / rms
     else:
-        norm_samples = recording.samples.copy()
+        norm_samples = process_samples.copy()
         
     amp = extract_amplitude_features(norm_samples)
     pha = extract_phase_features(norm_samples)
