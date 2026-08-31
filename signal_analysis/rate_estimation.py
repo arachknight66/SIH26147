@@ -45,6 +45,19 @@ def _detect_peaks_in_range(pxx, f, min_f=0.02, max_f=0.48):
     return f_est, confidence
 
 def estimate_rate_transition_energy(samples: np.ndarray) -> Tuple[Optional[float], float]:
+    """
+        Estimate symbol rate using zero-crossing/transition energy.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex or real samples.
+
+        Returns
+        -------
+        Tuple[Optional[float], float]
+            Estimated symbol rate fraction and confidence.
+        """
     samples = samples[:DEFAULT_MAX_ANALYSIS_SAMPLES]
     diff = np.abs(samples[1:] - samples[:-1])**2
     if len(diff) < 64:
@@ -53,6 +66,19 @@ def estimate_rate_transition_energy(samples: np.ndarray) -> Tuple[Optional[float
     return _detect_peaks_in_range(pxx, f)
 
 def estimate_rate_squared_magnitude(samples: np.ndarray) -> Tuple[Optional[float], float]:
+    """
+        Estimate symbol rate using squared magnitude spectrum.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex samples.
+
+        Returns
+        -------
+        Tuple[Optional[float], float]
+            Estimated symbol rate fraction and confidence.
+        """
     samples = samples[:DEFAULT_MAX_ANALYSIS_SAMPLES]
     mag2 = np.abs(samples)**2
     if len(mag2) < 64:
@@ -61,6 +87,19 @@ def estimate_rate_squared_magnitude(samples: np.ndarray) -> Tuple[Optional[float
     return _detect_peaks_in_range(pxx, f)
 
 def estimate_rate_autocorrelation(samples: np.ndarray) -> Tuple[Optional[float], float]:
+    """
+        Estimate symbol rate using cyclostationary autocorrelation.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex samples.
+
+        Returns
+        -------
+        Tuple[Optional[float], float]
+            Estimated symbol rate fraction and confidence.
+        """
     samples = samples[:DEFAULT_MAX_ANALYSIS_SAMPLES]
     mag = np.abs(samples)
     mag_zm = mag - np.mean(mag)

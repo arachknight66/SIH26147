@@ -69,6 +69,21 @@ from typing import Optional, Dict, Any
 from .models import Diagnostic, Severity
 
 def search_interleaver_hypotheses(demod_result: DemodulationResult, config: Optional[Dict[str, Any]] = None) -> List[DeinterleaverHypothesis]:
+    """
+        Search for block interleaver dimensions.
+
+        Parameters
+        ----------
+        demod_result : DemodulationResult
+            Demodulation output containing hard bits.
+        config : Optional[Dict[str, Any]]
+            Configuration for test dimensions.
+
+        Returns
+        -------
+        List[DeinterleaverHypothesis]
+            Ranked interleaver hypotheses.
+        """
     config = config or {}
     bits = demod_result.hard_bits
     llrs = demod_result.soft_llrs

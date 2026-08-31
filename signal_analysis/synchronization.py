@@ -24,6 +24,23 @@ def estimate_coarse_cfo_psk_qam(samples: np.ndarray, M: int) -> float:
     return float(cfo)
 
 def rrc_filter(sps: float, alpha: float = 0.35, length: int = 8) -> np.ndarray:
+    """
+        Generate a Root Raised Cosine (RRC) filter impulse response.
+
+        Parameters
+        ----------
+        sps : float
+            Samples per symbol.
+        alpha : float
+            Roll-off factor (default 0.35 is standard for satellite/terrestrial links).
+        length : int
+            Filter length in symbols (default 8).
+
+        Returns
+        -------
+        np.ndarray
+            Filter coefficients.
+        """
     t = np.arange(-length * sps, length * sps + 1)
     p = np.zeros_like(t, dtype=float)
     for i, tc in enumerate(t):
@@ -108,6 +125,25 @@ def recover_timing_gardner(samples: np.ndarray, sps: float, alpha: float = 0.35)
     return out_symbols, symbol_clock_locked, lock_quality_metric, symbol_indices
 
 def recover_carrier_costas(symbols: np.ndarray, modulation: str) -> Tuple[np.ndarray, bool, float]:
+    """
+        Recover carrier phase and frequency using a Costas loop.
+
+        Parameters
+        ----------
+        symbols : np.ndarray
+            Input symbols.
+        modulation : str
+            Target modulation scheme (e.g. BPSK, QPSK).
+
+        Returns
+        -------
+        Tuple[np.ndarray, bool, float]
+            Phase-corrected symbols, lock status, and lock quality metric.
+        
+        Notes
+        -----
+        Loop bandwidth and damping constants are hardcoded for typical SNR conditions.
+        """
     BnT = 0.01
     zeta = 0.707
     Kp = 2 * zeta * BnT
@@ -159,6 +195,21 @@ def recover_carrier_costas(symbols: np.ndarray, modulation: str) -> Tuple[np.nda
 
 
 def recover_timing_fsk(samples: np.ndarray, sps: float) -> Tuple[bool, float, np.ndarray]:
+    """
+        Recover timing for FSK signals.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Input samples.
+        sps : float
+            Samples per symbol.
+
+        Returns
+        -------
+        Tuple[bool, float, np.ndarray]
+            Lock status, symbol timing, and resampled symbols.
+        """
     prod = samples[1:] * np.conj(samples[:-1])
     fm = np.angle(prod)
     
@@ -217,6 +268,25 @@ def recover_timing_fsk(samples: np.ndarray, sps: float) -> Tuple[bool, float, np
     return symbol_clock_locked, lock_quality_metric, symbol_indices
 
 def fsk_dual_correlator(samples: np.ndarray, symbol_indices: np.ndarray, f0: float, f1: float) -> Tuple[np.ndarray, np.ndarray, np.ndarray, float]:
+    """
+        Perform dual-branch correlation for FSK demodulation.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Input samples.
+        symbol_indices : np.ndarray
+            Indices of symbol centers.
+        f0 : float
+            Mark frequency.
+        f1 : float
+            Space frequency.
+
+        Returns
+        -------
+        Tuple[np.ndarray, np.ndarray, np.ndarray, float]
+            Hard decisions, soft LLRs, symbol powers, and EVM estimate.
+        """
     e0_list = []
     e1_list = []
     decisions = []

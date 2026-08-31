@@ -24,6 +24,11 @@ def _enum_to_str(obj: Any) -> Any:
     return obj
 
 def run_cli():
+    """
+        Entry point for the CLI.
+
+        Parses arguments, loads the signal, and runs the pipeline.
+        """
     # Defensive check against GUI imports in headless mode
     for mod in sys.modules:
         if 'PySide6' in mod or 'pyqtgraph' in mod:

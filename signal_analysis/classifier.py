@@ -170,6 +170,19 @@ def _evaluate_2fsk(fv: ModulationFeatureVector) -> ClassScore:
     return ClassScore(score=total_score, evidence=evidence, contradictions=contradictions)
 
 def compute_classical_scores(feature_vector: ModulationFeatureVector) -> Dict[str, ClassScore]:
+    """
+        Compute scores for classical modulations based on features.
+
+        Parameters
+        ----------
+        feature_vector : ModulationFeatureVector
+            Extracted features.
+
+        Returns
+        -------
+        Dict[str, ClassScore]
+            Dictionary mapping modulation labels to their classification scores.
+        """
     return {
         "BPSK": _evaluate_bpsk(feature_vector),
         "QPSK": _evaluate_qpsk(feature_vector),

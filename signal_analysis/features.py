@@ -20,6 +20,19 @@ class AmplitudeFeatures:
     peak_to_rms_ratio: float
 
 def extract_amplitude_features(samples: np.ndarray) -> AmplitudeFeatures:
+    """
+        Extract amplitude-based statistical features.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex baseband samples.
+
+        Returns
+        -------
+        AmplitudeFeatures
+            Extracted amplitude features (variance, kurtosis, skewness).
+        """
     n_samples = len(samples)
     if n_samples < 16:
         return AmplitudeFeatures(FeatureValidity.UNAVAILABLE, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -57,6 +70,19 @@ class PhaseFeatures:
     collapse_var_8: float
 
 def extract_phase_features(samples: np.ndarray) -> PhaseFeatures:
+    """
+        Extract phase-based statistical features.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex baseband samples.
+
+        Returns
+        -------
+        PhaseFeatures
+            Extracted phase features.
+        """
     n_samples = len(samples)
     if n_samples < 16:
         return PhaseFeatures(FeatureValidity.UNAVAILABLE, 0.0, 0.0, 0.0, 0.0, 0.0)
@@ -110,6 +136,19 @@ class FrequencyFeatures:
     occupancy_ratio: float
 
 def extract_frequency_features(samples: np.ndarray) -> FrequencyFeatures:
+    """
+        Extract frequency-based statistical features.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex baseband samples.
+
+        Returns
+        -------
+        FrequencyFeatures
+            Extracted frequency features.
+        """
     n_samples = len(samples)
     if n_samples < 32:
         return FrequencyFeatures(FeatureValidity.UNAVAILABLE, 0, 0.0)
@@ -160,6 +199,19 @@ class CumulantFeatures:
     f42: float
 
 def extract_cumulant_features(samples: np.ndarray) -> CumulantFeatures:
+    """
+        Extract higher-order cumulant features.
+
+        Parameters
+        ----------
+        samples : np.ndarray
+            Complex baseband samples.
+
+        Returns
+        -------
+        CumulantFeatures
+            C20, C21, C40, C41, C42 cumulants.
+        """
     n_samples = len(samples)
     if n_samples < 64:
         # Need more samples for stable higher-order moments
@@ -208,6 +260,19 @@ class SpectralFeatures:
     prominent_peak_count: int
 
 def extract_spectral_features(recording: SignalRecording) -> SpectralFeatures:
+    """
+        Extract spectral symmetry and bandwidth features.
+
+        Parameters
+        ----------
+        recording : SignalRecording
+            Signal recording.
+
+        Returns
+        -------
+        SpectralFeatures
+            Extracted spectral features.
+        """
     if len(recording.samples) < 64:
         return SpectralFeatures(FeatureValidity.UNAVAILABLE, 0.0, 0.0, 0.0, 0.0, 0)
         
@@ -250,6 +315,19 @@ class CyclostationaryFeatures:
     top_candidate_rate: float
     
 def extract_cyclostationary_features(recording: SignalRecording) -> CyclostationaryFeatures:
+    """
+        Extract cyclostationary features for OFDM detection.
+
+        Parameters
+        ----------
+        recording : SignalRecording
+            Signal recording.
+
+        Returns
+        -------
+        CyclostationaryFeatures
+            Extracted features.
+        """
     # Delegate to rate estimation consensus
     consensus = estimate_symbol_rate_consensus(recording)
     

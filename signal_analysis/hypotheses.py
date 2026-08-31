@@ -15,6 +15,21 @@ def evaluate_and_rank_hypotheses(
     config: Dict[str, Any],
     recording: SignalRecording
 ) -> Tuple[List[ModulationHypothesis], Optional[ModulationHypothesis], bool, bool]:
+    """
+        Evaluate and rank modulation hypotheses.
+
+        Parameters
+        ----------
+        recording : SignalRecording
+            Signal recording.
+        fv : ModulationFeatureVector
+            Extracted feature vector.
+
+        Returns
+        -------
+        List[ModulationHypothesis]
+            Ranked list of hypotheses.
+        """
     
     unknown_threshold = config.get("unknown_threshold", 0.45)
     ambiguity_margin = config.get("ambiguity_margin", 0.08)
@@ -92,6 +107,21 @@ def evaluate_and_rank_hypotheses(
     return hypotheses, selected, is_ambiguous, is_unknown
 
 def check_temporal_consistency(recording: SignalRecording, config: Dict[str, Any]) -> Tuple[float, Optional[Diagnostic]]:
+    """
+        Check temporal consistency of signal features.
+
+        Parameters
+        ----------
+        recording : SignalRecording
+            Signal recording.
+        config : Dict[str, Any]
+            Configuration dictionary.
+
+        Returns
+        -------
+        Tuple[float, Optional[Diagnostic]]
+            Consistency score and diagnostic if inconsistent.
+        """
     window_count = config.get("window_count", 4)
     n_samples = len(recording.samples)
     if n_samples < 256:
