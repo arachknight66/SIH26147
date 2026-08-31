@@ -46,7 +46,7 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     
     if recording.semantic_type != "complex_iq":
         from .models import Diagnostic, Severity
-        diag = Diagnostic("NON_COMPLEX_PIPELINE", f"Pipeline ran on {recording.semantic_type}. Phase/cumulant metrics are compromised.", Severity.WARNING)
+        diag = Diagnostic(Severity.WARNING, "NON_COMPLEX_PIPELINE", f"Pipeline ran on {recording.semantic_type}. Phase/cumulant metrics are compromised.", "")
         res = PipelineResult(**{**res.__dict__, 'diagnostics': res.diagnostics + [diag]})
 
     
@@ -85,7 +85,7 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     res = PipelineResult(**{**res.__dict__, 'sync_status': PipelineStageStatus.COMPLETED, 'demod_result': demod})
     
     # --- Stage 4: Deinterleave & FEC ---
-    vit_res, rs_res, deint_res = decode_concatenated(demod)
+    vit_res, rs_res, deint_res = decode_concatenated(demod, config)
     res = PipelineResult(**{**res.__dict__, 'fec_status': PipelineStageStatus.COMPLETED, 'deint_result': deint_res, 'fec_result': rs_res})
     
     # Check FEC boundary exception: "If FECDecodeResult.decode_success is False, correlation may still be attempted"

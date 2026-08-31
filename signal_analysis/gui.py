@@ -5,7 +5,7 @@ from typing import Optional
 HAS_QT = True
 try:
     from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                   QHBoxLayout, QLabel, QPushButton, QFileDialog,
+                                   QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
                                    QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
                                    QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
     from PySide6.QtCore import Qt
@@ -13,7 +13,7 @@ try:
 except ImportError:
     try:
         from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
-                                     QHBoxLayout, QLabel, QPushButton, QFileDialog,
+                                     QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
                                      QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
                                      QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
         from PyQt6.QtCore import Qt
@@ -243,14 +243,30 @@ if HAS_QT:
             self.sidebar_layout.addWidget(self.sidebar)
             
         def open_file(self):
-            path, _ = QFileDialog.getOpenFileName(self, "Open Signal File", "", "All Files (*);;WAV (*.wav);;SigMF (*.sigmf-meta)")
-            if not path:
-                return
+        path, _ = QFileDialog.getOpenFileName(self, "Open Signal File", "", "All Files (*);;WAV (*.wav);;SigMF (*.sigmf-meta)")
+        if not path:
+            return
+            
+        try:
+            if path.endswith(".wav"):
+                import wave
+                with wave.open(path, 'rb') as wf:
+                    channels = wf.getnchannels()
                 
-            try:
-                if path.endswith(".wav"):
-                    reader = WavReader(path, mode="unresolved")
-                    recording = reader.read()
+                mode = "unresolved"
+                if channels == 2:
+                    items = [
+                        "Two independent real channels (stereo_real)",
+                        "Complex I/Q pair (Ch0=I, Ch1=Q) (stereo_iq)",
+                        "Auto-detect is unavailable — I'm not sure"
+                    ]
+                    item, ok = QInputDialog.getItem(self, "Stereo WAV Detected", "Select semantic type for 2-channel WAV:", items, 0, False)
+                    if ok and item:
+                        if "stereo_real" in item: mode = "stereo_real"
+                        elif "stereo_iq" in item: mode = "stereo_iq"
+                        
+                reader = WavReader(path, mode=mode)
+                recording = reader.read()
                 elif path.endswith(".sigmf-meta"):
                     recording = read_sigmf(path)
                 else:

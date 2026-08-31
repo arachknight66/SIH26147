@@ -352,6 +352,13 @@ class ReedSolomon:
             diagnostics.append(Diagnostic(Severity.ERROR, "RS_DECODE_FAILED", "Syndromes non-zero after correction", ""))
             return msg[:self.k], 0, False, diagnostics
             
+        # FIX 3: Independent re-encode verification
+        reencoded = self.encode(corrected[:self.k])
+        if reencoded[self.k:] != corrected[self.k:]:
+            diagnostics.append(Diagnostic(Severity.ERROR, "RS_REENCODE_MISMATCH", "Re-encoded parity symbols do not match corrected codeword parity symbols", ""))
+            return msg[:self.k], 0, False, diagnostics
+
+            
         # Warn if corrected fraction is suspiciously high (>80% of budget)
         if v > 0.8 * self.t:
             diagnostics.append(Diagnostic(Severity.WARNING, "RS_HIGH_CORRECTION", f"Used {v}/{self.t} correction budget", ""))

@@ -33,6 +33,7 @@ def run_cli():
     parser = argparse.ArgumentParser(description="Signal Analysis MVP Headless CLI")
     parser.add_argument("input", help="Path to input file or directory")
     parser.add_argument("--output", choices=["json", "text"], default="json", help="Output format")
+    parser.add_argument("--wav-stereo-mode", choices=["unresolved", "stereo_real", "stereo_iq"], default="unresolved", help="Stereo interpretation for WAV files")
     args = parser.parse_args()
     
     # We defer these imports so we don't accidentally import GUI stuff at module load
@@ -56,7 +57,7 @@ def run_cli():
         try:
             path_str = str(fpath)
             if path_str.endswith('.wav'):
-                reader = WavReader(path_str, mode='unresolved')
+                reader = WavReader(path_str, mode=args.wav_stereo_mode)
                 recording = reader.read()
             elif path_str.endswith('.sigmf-meta'):
                 recording = read_sigmf(path_str)

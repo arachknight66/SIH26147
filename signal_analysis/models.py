@@ -130,6 +130,7 @@ class DeinterleavingResult:
     llrs_reordered: np.ndarray  # float32
     hypothesis: DeinterleaverHypothesis
     cross_validation_score: float
+    diagnostics: List[Diagnostic] = field(default_factory=list)
 
 @dataclass(frozen=True)
 class FECDecodeResult:

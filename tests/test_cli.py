@@ -53,3 +53,21 @@ def test_cli_batch_isolation(tmp_path):
     
     assert "error" in out[str(invalid_wav)]
     assert "error" not in out[str(valid_wav)]
+
+def test_cli_stereo_mode(tmp_path):
+    import wave
+    test_wav = tmp_path / "test_stereo.wav"
+    with wave.open(str(test_wav), "wb") as f:
+        f.setnchannels(2)
+        f.setsampwidth(2)
+        f.setframerate(44100)
+        f.writeframes(np.zeros(200, dtype=np.int16).tobytes())
+        
+    cmd = [sys.executable, "-m", "signal_analysis.cli", str(test_wav), "--output", "json", "--wav-stereo-mode", "stereo_iq"]
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    assert result.returncode == 0
+    
+    out = json.loads(result.stdout)
+    res = out[str(test_wav)]
+    # With stereo_iq, it will NOT have the UNRESOLVED_STEREO diagnostic
+    assert not any(d["code"] == "UNRESOLVED_STEREO" for d in res.get("diagnostics", []))

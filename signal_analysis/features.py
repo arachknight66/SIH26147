@@ -324,9 +324,10 @@ def extract_all_features(recording: SignalRecording) -> ModulationFeatureVector:
     if len(recording.samples) > max_samples:
         frac = max_samples / len(recording.samples)
         diagnostics.append(Diagnostic(
+            severity=Severity.INFO,
             code="TRUNCATED_ANALYSIS",
             message=f"Analyzed first {max_samples} of {len(recording.samples)} samples ({frac*100:.2f}% of file)",
-            severity=Severity.INFO
+            evidence=""
         ))
 
     
@@ -340,9 +341,32 @@ def extract_all_features(recording: SignalRecording) -> ModulationFeatureVector:
         norm_samples = process_samples.copy()
         
     amp = extract_amplitude_features(norm_samples)
-    pha = extract_phase_features(norm_samples)
     fre = extract_frequency_features(norm_samples)
-    cum = extract_cumulant_features(norm_samples)
+    
+    # FIX 4: OFDM plausibility check
+    ofdm_n = check_ofdm_plausibility(norm_samples)
+    if ofdm_n is not None:
+        diagnostics.append(Diagnostic(
+            severity=Severity.INFO,
+            code="OFDM_PLAUSIBILITY",
+            message=f"Cyclic-prefix-like periodicity detected (candidate FFT size ~{ofdm_n}); this may indicate an OFDM/multicarrier signal outside the currently supported modulation set (BPSK/QPSK/8PSK/16-QAM/2-FSK).",
+            evidence=""
+        ))
+
+    # FIX 1: Real-valued gate
+    if recording.semantic_type != "complex_iq":
+        pha = PhaseFeatures(FeatureValidity.UNAVAILABLE, 0.0, 0.0, 0.0, 0.0, 0.0)
+        cum = CumulantFeatures(FeatureValidity.UNAVAILABLE, 0j, 0.0, 0j, 0j, 0j, 0.0, 0.0, 0.0, 0.0)
+        diagnostics.append(Diagnostic(
+            severity=Severity.WARNING,
+            code="COMPLEX_FEATURES_UNAVAILABLE",
+            message=f"Phase/cumulant features require complex_iq samples; got semantic_type='{recording.semantic_type}'. PSK/QAM discriminants below are not physically meaningful for this input.",
+            evidence=""
+        ))
+    else:
+        pha = extract_phase_features(norm_samples)
+        cum = extract_cumulant_features(norm_samples)
+
     
     # Spectral and Cyclostationary use the full recording object, we can pass normalized recording
     import dataclasses
@@ -370,5 +394,6 @@ def extract_all_features(recording: SignalRecording) -> ModulationFeatureVector:
         frequency=fre,
         cumulant=cum,
         spectral=spe,
-        cyclostationary=cyc
+        cyclostationary=cyc,
+        diagnostics=diagnostics
     )

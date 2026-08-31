@@ -65,7 +65,11 @@ def structural_payoff_score(bits: np.ndarray) -> float:
     score = np.max(np.abs(R)) / median_R
     return float(score)
 
-def search_interleaver_hypotheses(demod_result: DemodulationResult) -> List[DeinterleaverHypothesis]:
+from typing import Optional, Dict, Any
+from .models import Diagnostic, Severity
+
+def search_interleaver_hypotheses(demod_result: DemodulationResult, config: Optional[Dict[str, Any]] = None) -> List[DeinterleaverHypothesis]:
+    config = config or {}
     bits = demod_result.hard_bits
     llrs = demod_result.soft_llrs
     
@@ -84,7 +88,7 @@ def search_interleaver_hypotheses(demod_result: DemodulationResult) -> List[Dein
     # BLOCK candidate search
     # We search small typical interleaver dimensions: 8, 16, 32, 64, 128, 255 etc.
     # For a block, N = rows * cols. We try pairs (r, c)
-    test_dims = [8, 12, 16, 32, 64, 128, 255]
+    test_dims = config.get("deinterleaver_test_dims", [8, 12, 16, 32, 64, 128, 255])
     best_block_score = -1.0
     best_block_params = {}
     
@@ -126,6 +130,17 @@ def search_interleaver_hypotheses(demod_result: DemodulationResult) -> List[Dein
     ))
     
     # Sort by score descending
+    
+    if best_block_score <= score_none:
+        # No candidate exceeded baseline
+        hypotheses[0] = DeinterleaverHypothesis(
+            family=DeinterleaverFamily.NONE,
+            parameters={},
+            score=score_none,
+            falsification_evidence=[f"Search space exhausted: no BLOCK interleaver in {test_dims} exceeded NONE baseline ({score_none:.4f})"],
+            status=HypothesisStatus.HYPOTHESIS_UNVERIFIED
+        )
+
     hypotheses.sort(key=lambda x: x.score, reverse=True)
     return hypotheses
 
@@ -188,11 +203,11 @@ def falsify_and_cross_validate(bits: np.ndarray, hyp: DeinterleaverHypothesis) -
         
     return hyp
 
-def attempt_deinterleaving(demod_result: DemodulationResult) -> Tuple[DeinterleavingResult, List[DeinterleaverHypothesis]]:
+def attempt_deinterleaving(demod_result: DemodulationResult, config: Optional[Dict[str, Any]] = None) -> Tuple[DeinterleavingResult, List[DeinterleaverHypothesis]]:
     """
     Search, falsify, and apply best deinterleaver.
     """
-    hypotheses = search_interleaver_hypotheses(demod_result)
+    hypotheses = search_interleaver_hypotheses(demod_result, config)
     
     # Take top hypothesis, attempt falsification
     best_hyp = hypotheses[0]
@@ -219,11 +234,17 @@ def attempt_deinterleaving(demod_result: DemodulationResult) -> Tuple[Deinterlea
         out_llrs = llrs
         cv_score = structural_payoff_score(bits[half:])
         
+    diags = []
+    if best_hyp.family == DeinterleaverFamily.NONE and any("Search space exhausted" in ev for ev in best_hyp.falsification_evidence):
+        from .models import Diagnostic, Severity
+        diags.append(Diagnostic(Severity.INFO, "DEINTERLEAVER_SEARCH_EXHAUSTED", best_hyp.falsification_evidence[0], ""))
+
     res = DeinterleavingResult(
         bits=out_bits,
         llrs_reordered=out_llrs,
         hypothesis=best_hyp,
-        cross_validation_score=cv_score
+        cross_validation_score=cv_score,
+        diagnostics=diags
     )
-    
     return res, hypotheses
+

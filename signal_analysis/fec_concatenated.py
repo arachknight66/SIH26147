@@ -5,7 +5,8 @@ from .deinterleaving import attempt_deinterleaving, _deinterleave_block
 from .fec_convolutional import viterbi_decode_soft
 from .fec_reed_solomon import decode_reed_solomon
 
-def decode_concatenated(demod_result: DemodulationResult) -> Tuple[FECDecodeResult, FECDecodeResult, DeinterleavingResult]:
+from typing import Optional, Dict, Any
+def decode_concatenated(demod_result: DemodulationResult, config: Optional[Dict[str, Any]] = None) -> Tuple[FECDecodeResult, FECDecodeResult, DeinterleavingResult]:
     """
     Standard RS(outer) + interleaver + convolutional(inner) composition.
     Enforces pipeline ordering: Viterbi (inner) -> Deinterleave -> RS (outer).
@@ -49,7 +50,7 @@ def decode_concatenated(demod_result: DemodulationResult) -> Tuple[FECDecodeResu
         hypothesis_confirmed=True
     )
     
-    deint_res, _ = attempt_deinterleaving(fake_demod)
+    deint_res, _ = attempt_deinterleaving(fake_demod, config)
     
     # 3. Outer RS
     rs_res = decode_reed_solomon(deint_res)

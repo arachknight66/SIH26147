@@ -69,7 +69,7 @@ def test_pipeline_synthetic_end_to_end():
     import signal_analysis.pipeline
     original_decode = signal_analysis.pipeline.decode_concatenated
     
-    def fake_decode(demod):
+    def fake_decode(demod, config=None):
         from signal_analysis.models import FECDecodeResult, DeinterleavingResult, DeinterleaverHypothesis, HypothesisStatus, DeinterleaverFamily
         import numpy as np
         none_hyp = DeinterleaverHypothesis(DeinterleaverFamily.NONE, {}, 1.0, [], HypothesisStatus.HYPOTHESIS_UNVERIFIED)
