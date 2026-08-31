@@ -44,6 +44,12 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     # --- Stage 2: Hypothesis ---
     res = PipelineResult(**{**res.__dict__, 'hypothesis_status': PipelineStageStatus.COMPLETED})
     
+    if recording.semantic_type != "complex_iq":
+        from .models import Diagnostic, Severity
+        diag = Diagnostic("NON_COMPLEX_PIPELINE", f"Pipeline ran on {recording.semantic_type}. Phase/cumulant metrics are compromised.", Severity.WARNING)
+        res = PipelineResult(**{**res.__dict__, 'diagnostics': res.diagnostics + [diag]})
+
+    
     if recording.samples.ndim > 1:
         import dataclasses
         rec_1d = dataclasses.replace(recording, samples=recording.samples[:, 0])

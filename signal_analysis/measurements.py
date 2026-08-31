@@ -1,3 +1,4 @@
+from .constants import DEFAULT_MAX_ANALYSIS_SAMPLES
 import numpy as np
 from scipy import signal
 from dataclasses import dataclass
@@ -193,7 +194,7 @@ def compute_spectrogram(recording: SignalRecording, nperseg: int = 256) -> Spect
         unit = "cycles/sample"
         
     # Limit max samples to prevent massive UI freezes when generating waterfall images
-    max_samples = 262144
+    max_samples = DEFAULT_MAX_ANALYSIS_SAMPLES
     samples = recording.samples[:max_samples]
         
     if is_complex:

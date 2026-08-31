@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from enum import Enum
 from typing import Optional, Any, Dict, List, Tuple
 import numpy as np
@@ -196,3 +196,4 @@ class PipelineResult:
     # Stage 5: Framing
     framing_status: PipelineStageStatus
     frame_structure: Optional[FrameStructure]
+    diagnostics: List[Diagnostic] = field(default_factory=list)

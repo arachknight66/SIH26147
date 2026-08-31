@@ -1,3 +1,4 @@
+from .constants import DEFAULT_MAX_ANALYSIS_SAMPLES
 import numpy as np
 from typing import List, Dict, Tuple, Optional
 from .models import SignalRecording, ModulationHypothesis, SynchronizationResult, DemodulationResult, Diagnostic, Severity
@@ -112,7 +113,7 @@ def attempt_synchronization(recording: SignalRecording, hyp: ModulationHypothesi
     sps = c_params.samples_per_symbol
     mod = hyp.label
     
-    max_samples = 262144
+    max_samples = DEFAULT_MAX_ANALYSIS_SAMPLES
     samples = recording.samples[:max_samples]
     if samples.ndim > 1:
         samples = samples[:, 0]

@@ -1,3 +1,4 @@
+from .constants import DEFAULT_MAX_ANALYSIS_SAMPLES
 import numpy as np
 from scipy import signal
 from typing import Tuple, Optional, List
@@ -8,7 +9,7 @@ def estimate_coarse_cfo_psk_qam(samples: np.ndarray, M: int) -> float:
     Estimate coarse CFO for PSK/QAM using M-th power non-linearity.
     Dividing by M undoes the frequency scaling introduced by M-th power.
     """
-    max_samples = 262144
+    max_samples = DEFAULT_MAX_ANALYSIS_SAMPLES
     x = samples[:max_samples]
     x_m = x ** M
     

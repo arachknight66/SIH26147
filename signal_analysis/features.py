@@ -1,6 +1,9 @@
+from .constants import DEFAULT_MAX_ANALYSIS_SAMPLES
 import numpy as np
 from scipy import stats, signal
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from typing import List
+from .models import Diagnostic, Severity
 from typing import Tuple, Dict, Any, Optional
 
 from .models import FeatureValidity, SignalRecording
@@ -270,12 +273,62 @@ class ModulationFeatureVector:
     cumulant: CumulantFeatures
     spectral: SpectralFeatures
     cyclostationary: CyclostationaryFeatures
+    diagnostics: List[Diagnostic] = field(default_factory=list)
+
+
+def check_ofdm_plausibility(samples: np.ndarray) -> Optional[int]:
+    """
+    Coarse check for OFDM cyclic prefix signature by searching for strong 
+    autocorrelation peaks at typical FFT sizes.
+    Returns the candidate FFT size if detected, else None.
+    """
+    if len(samples) < 8192:
+        return None
+        
+    import numpy as np
+    mag_sq = np.abs(samples)**2
+    # Standard OFDM FFT sizes: 64, 128, 256, 512, 1024, 2048, 4096
+    # For a CP, we expect R(N) to have a peak. We can just correlate the original signal?
+    # Actually, delay-and-multiply is standard for CP detection: sum(x[k] * conj(x[k-N]))
+    # For speed, we just check a few discrete Ns
+    best_N = None
+    best_peak_ratio = 0.0
+    
+    for N in [64, 128, 256, 512, 1024, 2048, 4096]:
+        if len(samples) < N * 3:
+            continue
+            
+        # compute delay-and-multiply over a window
+        window = min(len(samples) - N, 10000)
+        delayed = samples[N:N+window]
+        orig = samples[:window]
+        
+        corr = np.abs(np.mean(delayed * np.conjugate(orig)))
+        pwr = np.mean(mag_sq[:window])
+        if pwr > 0:
+            rho = corr / pwr
+            if rho > 0.15 and rho > best_peak_ratio:  # Strong correlation (typically CP is 1/4 or 1/8 so rho is large if signal is clean)
+                best_peak_ratio = rho
+                best_N = N
+                
+    return best_N
 
 def extract_all_features(recording: SignalRecording) -> ModulationFeatureVector:
+
     """Extract all features working on a RMS-normalized copy."""
     # Truncate to avoid massive UI freezes on giant files
-    max_samples = 262144
+    max_samples = DEFAULT_MAX_ANALYSIS_SAMPLES
     process_samples = recording.samples[:max_samples]
+    
+    diagnostics = []
+    if len(recording.samples) > max_samples:
+        frac = max_samples / len(recording.samples)
+        diagnostics.append(Diagnostic(
+            code="TRUNCATED_ANALYSIS",
+            message=f"Analyzed first {max_samples} of {len(recording.samples)} samples ({frac*100:.2f}% of file)",
+            severity=Severity.INFO
+        ))
+
     
     # RMS Normalize
     mag = np.abs(process_samples)
