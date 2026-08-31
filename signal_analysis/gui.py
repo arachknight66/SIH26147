@@ -155,10 +155,16 @@ if HAS_QT:
             details += f"<b>Samples:</b> {len(recording.samples):,}<br>"
             
             sr = recording.sample_rate_hz
-            details += f"<b>Sample Rate:</b> {sr.value/1e6:.3f} MHz [{sr.status.value}]<br>"
+            if sr.value is not None:
+                details += f"<b>Sample Rate:</b> {sr.value/1e6:.3f} MHz [{sr.status.value}]<br>"
+            else:
+                details += f"<b>Sample Rate:</b> Unknown [{sr.status.value}]<br>"
             
             cf = recording.center_frequency_hz
-            details += f"<b>Center Freq:</b> {cf.value/1e6:.3f} MHz [{cf.status.value}]<br>"
+            if cf.value is not None:
+                details += f"<b>Center Freq:</b> {cf.value/1e6:.3f} MHz [{cf.status.value}]<br>"
+            else:
+                details += f"<b>Center Freq:</b> Unknown [{cf.status.value}]<br>"
             
             if recording.diagnostics:
                 details += "<b>Diagnostics:</b><br>"
