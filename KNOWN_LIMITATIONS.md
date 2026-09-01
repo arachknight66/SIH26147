@@ -28,3 +28,8 @@ To maintain strict epistemic integrity, this codebase explicitly refuses to sile
 
 ## 7. Known GUI Divergences
 *Currently, all identified GUI-vs-pipeline wiring gaps have been successfully patched as of the Phase 5 verification phase (specifically, the `QInputDialog` stereo prompt race condition and the Phase 4/5 `PipelineResult` attribute mapping errors).* No other wiring divergence is known, but the GUI code explicitly relies on exact field matches to the `PipelineResult` dataclasses and must be updated in lockstep if those models change.
+
+### Classifier Limitations
+
+1. **Unsupported Constellation Orders (e.g. 64-QAM):** The Phase 2 classification stage relies on scale-invariant phase and cumulant discriminants which are vulnerable to misidentifying unsupported higher-order QAMs. When fed a 64-QAM signal, the classifier does not cleanly refuse it as UNKNOWN, but instead confidently mislabels it as 16-QAM (score 1.0). This propagates an incorrect hypothesis to the sync and demodulation stages resulting in high EVM rather than an early rejection.
+2. **CFO Sensitivity in 16-QAM Classification:** The Phase 2 cumulant-based feature extraction (specifically C_40 and C_42) is extremely brittle to Carrier Frequency Offset for constellations with multiple amplitude levels like 16-QAM. A very small CFO (e.g. 0.01 cycles/sample) spins the constellation during feature extraction, destroying the amplitude/phase discriminants. Consequently, the classifier confidently mislabels the 16-QAM signal as QPSK. This creates a gatekeeping vulnerability where the robust decision-directed Costas loop in Phase 3 never gets the opportunity to lock because Phase 2 feeds it the wrong hypothesis.

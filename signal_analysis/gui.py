@@ -372,6 +372,11 @@ if HAS_QT:
                     self.list.addItem("Low SNR QPSK", "demo_low_snr_qpsk.wav")
                     self.list.addItem("OFDM (Out of Scope)", "demo_ofdm_out_of_scope.wav")
                     self.list.addItem("Real Valued (Audio)", "demo_real_valued_gate.wav")
+                    self.list.addItem("Clean 16-QAM (High SNR)", "demo_qam_clean.wav")
+                    self.list.addItem("Low SNR 16-QAM", "demo_qam_low_snr.wav")
+                    self.list.addItem("Concatenated 16-QAM (RS + FEC)", "demo_qam_concatenated.wav")
+                    self.list.addItem("64-QAM (Unsupported Order)", "demo_qam_unsupported_order.wav")
+                    self.list.addItem("16-QAM with CFO", "demo_qam_cfo_capture.wav")
                     self.layout.addWidget(QLabel("Select Demo Fixture:"))
                     self.layout.addWidget(self.list)
                     self.desc = QTextEdit()
@@ -395,6 +400,16 @@ if HAS_QT:
                         self.desc.setText("OFDM signal. Demonstrates correct rejection at Phase 2 (hypothesis status UNKNOWN) due to out-of-scope bimodal frequency distribution.")
                     elif idx == 4:
                         self.desc.setText("Real-valued audio. Demonstrates rejection at Phase 2 because the MVP is explicitly for complex I/Q baseband.")
+                    elif idx == 5:
+                        self.desc.setText("Clean 16-QAM, high SNR. Demonstrates accurate Phase 2 classification (HIGH tier) and Phase 3 lock. Note that 16-QAM's carrier recovery uses a distinct, decision-directed Costas loop architecture rather than the simpler phase-only loop used for BPSK/QPSK.")
+                    elif idx == 6:
+                        self.desc.setText("16-QAM at 10dB SNR. Demonstrates physical SNR-sensitivity of higher-order constellations. The constellation density causes higher error vectors (EVM ~17%) and a degraded lock quality metric compared to BPSK/QPSK at identical noise levels.")
+                    elif idx == 7:
+                        self.desc.setText("16-QAM Concatenated simulation (40dB SNR). Shows Phase 4/5 pipeline acting on a 16-QAM bitstream. Accurately decodes framing and CRC-8 payloads, maintaining end-to-end bit-exact payload recovery through the higher-order constellation demapping.")
+                    elif idx == 8:
+                        self.desc.setText("64-QAM (Unsupported). Demonstrates a KNOWN CLASSIFIER LIMITATION: instead of cleanly rejecting 64-QAM as UNKNOWN, the amplitude/phase discriminant features confidently mislabel it as 16-QAM (Score 1.0). Phase 3 then attempts to lock on it as 16-QAM, resulting in a high EVM (~21%).")
+                    elif idx == 9:
+                        self.desc.setText("16-QAM with slight CFO. Demonstrates a KNOWN CLASSIFIER LIMITATION: even tiny CFO amounts (e.g. 0.01 cycles/sample) spin the constellation, destroying the phase-dependent cumulant features (C40, C42). Phase 2 confidently misclassifies it as QPSK (Score ~0.58 vs 0.50), causing sync to subsequently fail. The Phase 3 loop never even gets to test its capture range because the Phase 2 classifier acts as a brittle gatekeeper.")
             
             dlg = DemoDialog(self)
             if dlg.exec():

@@ -15,7 +15,14 @@ def test_demo_mode_fixtures():
         "demo_concatenated.wav": PipelineStageStatus.COMPLETED,
         "demo_low_snr_qpsk.wav": PipelineStageStatus.COMPLETED,
         "demo_ofdm_out_of_scope.wav": PipelineStageStatus.NOT_ATTEMPTED,
-        "demo_real_valued_gate.wav": PipelineStageStatus.NOT_ATTEMPTED
+        "demo_real_valued_gate.wav": PipelineStageStatus.NOT_ATTEMPTED,
+        "demo_qam_clean.wav": PipelineStageStatus.COMPLETED,
+        "demo_qam_low_snr.wav": PipelineStageStatus.COMPLETED,
+        "demo_qam_concatenated.wav": PipelineStageStatus.COMPLETED,
+        # The unsupported 64-QAM gets mislabeled confidently as 16-QAM and goes through to sync (where EVM is high but sync_status still completes)
+        "demo_qam_unsupported_order.wav": PipelineStageStatus.COMPLETED,
+        # 16-QAM with CFO gets confidently mislabeled as QPSK, which fails sync because QPSK costas loop cannot lock it.
+        "demo_qam_cfo_capture.wav": PipelineStageStatus.FAILED
     }
 
     for fname, expected_status in fixtures.items():
@@ -27,8 +34,5 @@ def test_demo_mode_fixtures():
         recording = WavReader(str(path), mode=mode).read()
         res = run_full_pipeline(recording)
         
-        # We check sync_status since NOT_ATTEMPTED happens early (e.g. at hypothesis for OFDM/real)
-        if expected_status == PipelineStageStatus.COMPLETED:
-            assert res.sync_status == PipelineStageStatus.COMPLETED, f"{fname} failed sync_status"
-        else:
-            assert res.sync_status == PipelineStageStatus.NOT_ATTEMPTED, f"{fname} should not have run sync"
+        # Check sync_status directly matches expectation
+        assert res.sync_status == expected_status, f"{fname} got sync_status {res.sync_status}, expected {expected_status}"
