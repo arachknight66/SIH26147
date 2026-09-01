@@ -27,49 +27,71 @@ def _reflect(val: int, width: int) -> int:
             res |= (1 << (width - 1 - i))
     return res
 
-def compute_crc_bitwise(bits: np.ndarray, alg: CRCAlgorithm) -> int:
-    """
-    Computes CRC by processing the bit array directly. 
-    This avoids byte alignment assumptions which is critical for raw bitstreams 
-    where the payload length might not be a multiple of 8.
-    """
-    crc = alg.init
+_CRC_CACHE = {}
+
+def _get_crc_tables(alg: CRCAlgorithm, max_len: int = 16384) -> Tuple[np.ndarray, np.ndarray]:
+    if alg.name in _CRC_CACHE:
+        T, Z = _CRC_CACHE[alg.name]
+        if len(T) >= max_len:
+            return T, Z
+            
+    T = np.zeros(max_len, dtype=np.uint32)
+    Z = np.zeros(max_len, dtype=np.uint32)
     
-    for b in bits:
-        # If refin is True, we process the LSB of bytes first.
-        # But we are taking a raw bitstream. The "refin" standard implies byte-level reflection.
-        # For a pure bitstream, what does refin mean? 
-        # Typically, it means the bits on the wire are sent LSB first.
-        # Our `bits` array is already the order bits arrived on the wire.
-        # So we process them exactly in the order they appear.
-        # For standards where refin=True, the wire order IS the reflection, 
-        # so we feed bits as they arrive, into the MSB or LSB of the register?
-        # Actually, standard bitwise CRC:
-        bit_val = int(b)
+    if alg.refin:
+        poly_ref = _reflect(alg.poly, alg.width)
         
-        # Standard unreflected:
-        # MSB of CRC is tested. If CRC MSB ^ bit == 1, shift left and XOR poly.
-        # Reflected: 
-        # LSB of CRC is tested. If CRC LSB ^ bit == 1, shift right and XOR reversed poly.
-        
+    def step_zero(crc):
         if alg.refin:
-            # Shift right
             crc_lsb = crc & 1
             crc >>= 1
-            if crc_lsb ^ bit_val:
-                crc ^= _reflect(alg.poly, alg.width)
+            if crc_lsb:
+                crc ^= poly_ref
         else:
-            # Shift left
             crc_msb = (crc >> (alg.width - 1)) & 1
             crc = (crc << 1) & ((1 << alg.width) - 1)
-            if crc_msb ^ bit_val:
+            if crc_msb:
                 crc ^= alg.poly
-                
-    if alg.refout != alg.refin:
-        crc = _reflect(crc, alg.width)
+        return crc
         
-    crc ^= alg.xorout
-    return crc
+    crc_T = poly_ref if alg.refin else alg.poly
+    crc_Z = alg.init
+    
+    for d in range(max_len):
+        val_T = crc_T
+        val_Z = crc_Z
+        if alg.refout != alg.refin:
+            val_T = _reflect(val_T, alg.width)
+            val_Z = _reflect(val_Z, alg.width)
+            
+        T[d] = val_T
+        Z[d] = val_Z
+        
+        crc_T = step_zero(crc_T)
+        crc_Z = step_zero(crc_Z)
+        
+    _CRC_CACHE[alg.name] = (T, Z)
+    return T, Z
+
+def compute_crc_bitwise(bits: np.ndarray, alg: CRCAlgorithm) -> int:
+    """
+    Computes CRC using GF(2) linear vectorization over the entire payload array.
+    This avoids Python bit-by-bit loops and runs strictly in numpy.
+    """
+    L = len(bits)
+    if L == 0:
+        return alg.init ^ alg.xorout
+        
+    T, Z = _get_crc_tables(alg, max(L, 16384))
+    
+    rev = bits[::-1]
+    crc_payload = 0
+    # bitwise operations over the whole payload array
+    ones = (rev == 1)
+    if np.any(ones):
+        crc_payload = int(np.bitwise_xor.reduce(T[:L][ones]))
+        
+    return crc_payload ^ int(Z[L]) ^ alg.xorout
 
 def search_crcs(bits: np.ndarray, start_idx: int, max_search_bytes: int = 2048) -> List[CRCMatch]:
     """
@@ -79,6 +101,11 @@ def search_crcs(bits: np.ndarray, start_idx: int, max_search_bytes: int = 2048) 
     Since sweeping all bit-lengths is O(N^2), we'll do a small sweep for lengths up to max_search_bytes.
     """
     matches = []
+    
+    # Explicit hard cap: skip search if the window would be pathologically large
+    if max_search_bytes > 4096:
+        max_search_bytes = 4096
+        
     end_idx = min(len(bits), start_idx + max_search_bytes * 8)
     
     # Extract the maximum possible window once to avoid copying

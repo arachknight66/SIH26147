@@ -173,8 +173,9 @@ if HAS_QT:
 
             self.layout.addStretch()
 
-        def update_metadata(self, recording: SignalRecording):
-            pipe_res = run_full_pipeline(recording)
+        def update_metadata(self, recording: SignalRecording, pipe_res: PipelineResult = None):
+            if pipe_res is None:
+                pipe_res = run_full_pipeline(recording)
             
             # Check for NON_COMPLEX_PIPELINE
             has_non_complex = any(d.code == "NON_COMPLEX_PIPELINE" for d in pipe_res.diagnostics)
@@ -350,10 +351,62 @@ if HAS_QT:
             self.open_btn.clicked.connect(self.open_file)
             self.sidebar_layout.addWidget(self.open_btn)
             
+            self.demo_btn = QPushButton("Demo Mode...")
+            self.demo_btn.clicked.connect(self.show_demo_mode)
+            self.sidebar_layout.addWidget(self.demo_btn)
+            
             self.sidebar = MetadataSidebar()
             self.sidebar.parent_window = self
             self.sidebar_layout.addWidget(self.sidebar)
             
+        def show_demo_mode(self):
+            class DemoDialog(QDialog):
+                def __init__(self, parent=None):
+                    super().__init__(parent)
+                    self.setWindowTitle("Demo Mode")
+                    self.resize(500, 300)
+                    self.layout = QVBoxLayout(self)
+                    self.list = QComboBox()
+                    self.list.addItem("Clean QPSK (High SNR)", "demo_clean_qpsk.wav")
+                    self.list.addItem("Concatenated FEC (RS + BPSK)", "demo_concatenated.wav")
+                    self.list.addItem("Low SNR QPSK", "demo_low_snr_qpsk.wav")
+                    self.list.addItem("OFDM (Out of Scope)", "demo_ofdm_out_of_scope.wav")
+                    self.list.addItem("Real Valued (Audio)", "demo_real_valued_gate.wav")
+                    self.layout.addWidget(QLabel("Select Demo Fixture:"))
+                    self.layout.addWidget(self.list)
+                    self.desc = QTextEdit()
+                    self.desc.setReadOnly(True)
+                    self.layout.addWidget(QLabel("Narration:"))
+                    self.layout.addWidget(self.desc)
+                    self.run_btn = QPushButton("Run Selected")
+                    self.run_btn.clicked.connect(self.accept)
+                    self.layout.addWidget(self.run_btn)
+                    self.list.currentIndexChanged.connect(self.update_desc)
+                    self.update_desc()
+                def update_desc(self):
+                    idx = self.list.currentIndex()
+                    if idx == 0:
+                        self.desc.setText("Clean QPSK, high SNR, unencoded. Demonstrates Phase 2 confident classification + Phase 3 clean sync/demod. You'll see high hypothesis scores and lock quality.")
+                    elif idx == 1:
+                        self.desc.setText("Concatenated simulation. Shows framing and CRC detection on a BPSK signal. Demonstrates Phase 4/5 recovering HDLC frames successfully out of the payload.")
+                    elif idx == 2:
+                        self.desc.setText("Low SNR QPSK. Demonstrates how the pipeline degrades gracefully under noise, reflecting lower confidence in classification and lock metrics.")
+                    elif idx == 3:
+                        self.desc.setText("OFDM signal. Demonstrates correct rejection at Phase 2 (hypothesis status UNKNOWN) due to out-of-scope bimodal frequency distribution.")
+                    elif idx == 4:
+                        self.desc.setText("Real-valued audio. Demonstrates rejection at Phase 2 because the MVP is explicitly for complex I/Q baseband.")
+            
+            dlg = DemoDialog(self)
+            if dlg.exec():
+                import os
+                fixture_file = dlg.list.currentData()
+                path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fixtures", "demo", fixture_file)
+                if os.path.exists(path):
+                    self.open_file(override_path=path, force_stereo_iq=True)
+                else:
+                    from PySide6.QtWidgets import QMessageBox
+                    QMessageBox.warning(self, "Missing Fixture", f"Fixture not found at {path}")
+
         def _guess_stereo_mode_heuristic(self, path: str) -> str:
             import wave
             import numpy as np
@@ -381,19 +434,24 @@ if HAS_QT:
                     var0 = np.var(ch0_c)
                     var1 = np.var(ch1_c)
                     
-                    if var0 < 1e-6 or var1 < 1e-6:
-                        return "likely-independent"
-                        
-                    corr = np.abs(np.mean(ch0_c * ch1_c) / np.sqrt(var0 * var1))
-                    if corr > 0.3 or ratio < 0.5:
-                        return "likely-independent"
-                    else:
-                        return "likely-quadrature"
+                    frames = wf.readframes(1024)
+                    if wf.getsampwidth() == 2:
+                        samples = np.frombuffer(frames, dtype=np.int16).reshape(-1, 2)
+                        # If channels are nearly identical, probably real audio
+                        if np.allclose(samples[:, 0], samples[:, 1], atol=10):
+                            return "stereo_real"
+                        return "stereo_iq"
             except Exception:
                 return "unable to analyze"
 
-        def open_file(self):
-            path, _ = QFileDialog.getOpenFileName(self, "Open Signal File", "", "All Files (*);;WAV (*.wav);;SigMF (*.sigmf-meta)")
+        def open_file(self, override_path: str = None, force_stereo_iq: bool = False):
+            if override_path:
+                path = override_path
+            else:
+                path, _ = QFileDialog.getOpenFileName(
+                    self, "Open Signal File", "", "All Files (*);;WAV (*.wav);;SigMF (*.sigmf-meta)",
+                    options=QFileDialog.DontUseNativeDialog
+                )
             if not path:
                 return
                 
@@ -404,7 +462,9 @@ if HAS_QT:
                         channels = wf.getnchannels()
                     
                     mode = "unresolved"
-                    if channels == 2:
+                    if force_stereo_iq:
+                        mode = "stereo_iq"
+                    elif channels == 2:
                         heuristic = self._guess_stereo_mode_heuristic(path)
                         hint = f"Heuristic: channels appear {heuristic} (not a determination — verify against file provenance)."
                         items = [
@@ -450,10 +510,39 @@ if HAS_QT:
                         
                 self.update_plots(recording)
                 self.sidebar.update_metadata(recording)
+            except (OSError, ValueError) as e:
+                # File IO or parsing errors
+                from PySide6.QtWidgets import QMessageBox
+                QMessageBox.critical(self, "File Error", f"Failed to open file:\n{e}")
             except Exception as e:
+                # Unexpected crashes should surface visibly as a Diagnostic
                 import traceback
-                traceback.print_exc()
-                print(f"Error loading file: {e}")
+                tb_str = traceback.format_exc()
+                print(tb_str)
+                from PySide6.QtWidgets import QMessageBox
+                from .models import Diagnostic, Severity, PipelineResult, PipelineStageStatus
+                
+                QMessageBox.critical(self, "Pipeline Crash", f"An unexpected pipeline error occurred:\n{type(e).__name__}: {e}")
+                
+                # If we have a recording, forcibly render the error state in the sidebar
+                if 'recording' in locals():
+                    err_diag = Diagnostic(Severity.ERROR, "UNHANDLED_EXCEPTION", str(e), tb_str)
+                    crash_res = PipelineResult(
+                        recording=recording,
+                        hypothesis_status=PipelineStageStatus.FAILED,
+                        top_hypothesis=None,
+                        all_hypotheses=[],
+                        sync_status=PipelineStageStatus.FAILED,
+                        demod_result=None,
+                        fec_status=PipelineStageStatus.FAILED,
+                        deint_result=None,
+                        fec_result=None,
+                        framing_status=PipelineStageStatus.FAILED,
+                        frame_structure=None,
+                        diagnostics=[err_diag]
+                    )
+                    # Pass the pre-rendered result
+                    self.sidebar.update_metadata(recording, crash_res)
                 
         def update_synced_constellation(self, res, has_non_complex=False):
             self.constellation_plot.clear()

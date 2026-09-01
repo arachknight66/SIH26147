@@ -3,10 +3,11 @@ from typing import List, Tuple
 from .models import HeaderMatch, CRCMatch, FrameStructure, HypothesisStatus
 from .crc_search import search_crcs
 
-def assemble_frames(bits: np.ndarray, header_matches: List[HeaderMatch]) -> List[FrameStructure]:
+def assemble_frames(bits: np.ndarray, header_matches: List[HeaderMatch], max_header_matches: int = 10) -> List[FrameStructure]:
     """
     Combines Header matches and CRC searches into FrameStructure hypotheses.
     Reuses the ambiguity ranking logic pattern.
+    Limits to `max_header_matches` top matches to cap O(N) CRC search sweeps.
     """
     if not header_matches:
         # Honest fallback to UNKNOWN
@@ -20,6 +21,11 @@ def assemble_frames(bits: np.ndarray, header_matches: List[HeaderMatch]) -> List
         )]
         
     structures = []
+    
+    # Cap to prevent pathological hang on noisy bitstreams with short false-positive sync words
+    header_matches = sorted(header_matches, key=lambda m: m.match_confidence, reverse=True)
+    if len(header_matches) > max_header_matches:
+        header_matches = header_matches[:max_header_matches]
     
     for match in header_matches:
         # A single match. Try to find a CRC starting right after the header
