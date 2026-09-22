@@ -28,6 +28,10 @@ def test_cli_no_gui_import(tmp_path):
     # Assert specific status strings exist in the JSON output, not Enum objects
     assert "hypothesis_status" in out[str(test_wav)]
     assert out[str(test_wav)]["hypothesis_status"] in ["COMPLETED", "FAILED", "NOT_ATTEMPTED", "SKIPPED"]
+    metadata = out[str(test_wav)]["run_metadata"]
+    assert metadata["schema_version"] == 1
+    assert metadata["engine"]["native_api_version"] == 5
+    assert metadata["processing"]["input_coverage"] == "complete_in_memory"
 
 def test_cli_batch_isolation(tmp_path):
     import wave

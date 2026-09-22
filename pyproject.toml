@@ -1,0 +1,47 @@
+[build-system]
+requires = [
+  "scikit-build-core==0.11.6",
+  "pybind11==3.0.1",
+]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "sih26147-signal-analysis"
+version = "0.2.0.dev1"
+description = "Signal recording analysis prototype with a native DSP core"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "numpy>=1.24",
+  "scipy>=1.10",
+]
+
+[project.optional-dependencies]
+gui = [
+  "PySide6>=6.5",
+  "pyqtgraph>=0.13",
+]
+test = [
+  "pytest>=8,<10",
+]
+
+[project.scripts]
+sih26147 = "signal_analysis.cli:run_cli"
+sih26147-gui = "signal_analysis.gui:run_app"
+
+[tool.scikit-build]
+cmake.build-type = "Release"
+cmake.version = ">=3.20"
+wheel.packages = ["signal_analysis"]
+sdist.include = [
+  "CMakeLists.txt",
+  "CMakePresets.json",
+  "cpp/**",
+  "cmake/**",
+  "benchmarks/**",
+  "tools/**",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"

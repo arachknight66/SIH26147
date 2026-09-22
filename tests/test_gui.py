@@ -1,8 +1,18 @@
 import pytest
 import numpy as np
+import time
 from unittest.mock import patch, MagicMock
 from signal_analysis.gui import MainWindow, HAS_QT, _get_status_color, format_stage_status
 from signal_analysis.models import PipelineStageStatus
+
+
+def _wait_for_analysis(app, window, timeout_s=5.0):
+    deadline = time.monotonic() + timeout_s
+    while window._active_job is not None and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    app.processEvents()
+    assert window._active_job is None, "analysis job did not finish"
 
 def test_status_color_mapping():
     assert _get_status_color(PipelineStageStatus.NOT_ATTEMPTED) == "gray"
@@ -57,10 +67,10 @@ def test_stereo_wav_heuristic(tmp_path):
     
     # Assert heuristic output directly
     corr_guess = window._guess_stereo_mode_heuristic(str(corr_path))
-    assert corr_guess == "likely-independent"
+    assert corr_guess == "stereo_real"
     
     iq_guess = window._guess_stereo_mode_heuristic(str(iq_path))
-    assert iq_guess == "likely-quadrature"
+    assert iq_guess == "stereo_iq"
     
 @pytest.mark.skipif(not HAS_QT, reason="Qt not available")
 def test_open_file_dialog_wiring_complex_iq(tmp_path):
@@ -87,6 +97,7 @@ def test_open_file_dialog_wiring_complex_iq(tmp_path):
                 with patch.object(window, "update_plots"):
                     with patch.object(window.sidebar, "update_metadata") as mock_update_metadata:
                         window.open_file()
+                        _wait_for_analysis(app, window)
                     mock_update_metadata.assert_called_once()
                     recording = mock_update_metadata.call_args[0][0]
                     assert recording.semantic_type == "complex_iq"

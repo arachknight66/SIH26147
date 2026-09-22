@@ -11,25 +11,32 @@ To maintain strict epistemic integrity, this codebase explicitly refuses to sile
 **Behavior:** The Phase 1 loaders will not guess. If a raw `.iq` file is provided without an accompanying `RawIQConfig` (or if a WAV file lacks standard header chunks), these values are marked `MISSING` and downstream calculations that require true time (like baud rate in Hz) will degrade gracefully to fractional units.
 
 ## 3. Blind Pseudo-Random De-interleaving
-**Limitation:** The system explicitly refuses to blindly recover pseudo-random convolutional interleavers without a known generator polynomial.
-**Behavior:** Attempting to brute-force a pseudo-random permutation is computationally unfalsifiable without knowing the exact frame payload. 
+**Limitation:** Seeded pseudo-random, diagonal, convolutional, and block transforms require an explicit profile or permutation.
+**Behavior:** The native engine applies a supplied seed/permutation deterministically but does not brute-force arbitrary pseudo-random permutations or unknown convolutional delay-line state.
 
 ## 4. Bounded Block Interleaver Search
 **Limitation:** Block interleaver dimension discovery is constrained to a predefined, finite search grid (e.g., `8, 12, 16, 32, 64, 128, 255`).
 **Behavior:** Interleavers with `rows` or `cols` outside this exact grid are invisible to the search. If a signal uses an unmapped dimension, Phase 4 will exhaust the search grid, report a failure diagnostic, and halt.
 
-## 5. LDPC Decoding and Systematic Extraction
-**Limitation:** Low-Density Parity-Check (LDPC) coding remains explicitly out of scope for the MVP.
-**Behavior:** While convolutional (Viterbi) and Reed-Solomon blocks are robustly verified, LDPC systematic bit-position extraction has not been implemented or verified against known ground-truth, and will be ignored in the FEC cascade.
+## 5. LDPC Profiles and Systematic Extraction
+**Limitation:** The native normalized min-sum decoder accepts supplied sparse matrices and `.alist` files, but no validated bundled `MACKAY_504_1008` matrix is present in this repository.
+**Behavior:** An LDPC profile without an explicit matrix returns `LDPC_MATRIX_REQUIRED`; the engine does not invent systematic information-bit positions or claim a successful decode merely because iterations finished.
 
-## 6. Analysis Window Truncation
-**Limitation:** The pipeline operates only on a truncated prefix of the file.
-**Behavior:** To ensure responsive analysis times (especially in the GUI), processing is capped by `DEFAULT_MAX_ANALYSIS_SAMPLES = 100_000` (adjustable in `constants.py`). For a 1 Msps signal, this means only the first 0.1 seconds of the recording are ever evaluated. Deep-file anomalies or late-arriving packets will not be detected unless the user explicitly slices the file prior to ingestion.
+## 6. In-Memory Production Workflow
+**Limitation:** GUI, CLI, and Demo Mode now share one request/job workflow, but that workflow still imports a complete `SignalRecording` before the pipeline runs.
+**Behavior:** Native `RecordingSource` supports explicit regions, bounded previews, and chunked full-source analysis with reported coverage. Its full streaming path is not yet the ordinary GUI/CLI workflow, so large captures can still require full input memory and several analysis operations retain prefix limits.
 
-## 7. Known GUI Divergences
-*Currently, all identified GUI-vs-pipeline wiring gaps have been successfully patched as of the Phase 5 verification phase (specifically, the `QInputDialog` stereo prompt race condition and the Phase 4/5 `PipelineResult` attribute mapping errors).* No other wiring divergence is known, but the GUI code explicitly relies on exact field matches to the `PipelineResult` dataclasses and must be updated in lockstep if those models change.
+## 7. Demo Fixture Scope
+**Limitation:** The legacy structured BPSK and 16-QAM fixtures do not contain validated advertised concatenated FEC chains.
+**Behavior:** Demo Mode labels them as structured fixtures, keeps evaluation metadata separate from production requests, and never uses ground truth to select an analysis outcome. A genuine end-to-end FEC fixture corpus remains required before beta validation.
 
-### Classifier Limitations
+## 8. Known GUI Divergences
+*Currently, all identified GUI-vs-pipeline wiring gaps have been successfully patched through the Phase 6 verification phase.* No other wiring divergence is known, but the GUI code explicitly relies on exact field matches to the `PipelineResult` dataclasses and must be updated in lockstep if those models change.
 
-1. **Unsupported Constellation Orders (e.g. 64-QAM):** The Phase 2 classification stage relies on scale-invariant phase and cumulant discriminants which are vulnerable to misidentifying unsupported higher-order QAMs. When fed a 64-QAM signal, the classifier does not cleanly refuse it as UNKNOWN, but instead confidently mislabels it as 16-QAM (score 1.0). This propagates an incorrect hypothesis to the sync and demodulation stages resulting in high EVM rather than an early rejection.
-2. **CFO Sensitivity in 16-QAM Classification:** The Phase 2 cumulant-based feature extraction (specifically C_40 and C_42) is extremely brittle to Carrier Frequency Offset for constellations with multiple amplitude levels like 16-QAM. A very small CFO (e.g. 0.01 cycles/sample) spins the constellation during feature extraction, destroying the amplitude/phase discriminants. Consequently, the classifier confidently mislabels the 16-QAM signal as QPSK. This creates a gatekeeping vulnerability where the robust decision-directed Costas loop in Phase 3 never gets the opportunity to lock because Phase 2 feeds it the wrong hypothesis.
+### Native estimation and receiver limitations
+
+1. Phase 3 family classification and rate/CFO calibration currently has deterministic synthetic held-out coverage, not a representative RF capture corpus. Exact 16/64/256-QAM order ranking can remain ambiguous even when the QAM family is correct.
+2. The PSD-floor SNR estimate is marked unreliable when the recording does not expose a separable noise-only band. Wideband FSK and multicarrier captures are particularly difficult.
+3. `ReceiverSession` preserves arbitrary chunk equivalence but buffers a bounded acquisition window and emits on `flush`; continuous incremental tracking is not implemented yet.
+4. DBPSK/DQPSK, OQPSK, and MSK paths are present. GMSK/GFSK, generic CPM, pi/4-DQPSK, adaptive multipath equalization, and finite-memory CPM sequence detection remain unsupported.
+5. Carrier acquisition explicitly reports rotational and nonlinear-frequency aliases. A lock does not verify absolute bit mapping unless a carrier/phase reference or later frame evidence resolves it.

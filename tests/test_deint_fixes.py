@@ -6,7 +6,8 @@ def test_fix5_deinterleaver_search_exhausted():
     
     # We create a BLOCK interleaved sequence with dimensions that are explicitly
     # NOT in the default test_dims grid, say 7 x 11.
-    bits = np.random.randint(0, 2, 7*11*5).astype(np.uint8)
+    rng = np.random.default_rng(147)
+    bits = rng.integers(0, 2, 7*11*5, dtype=np.uint8)
     # The structure must have some periodicity to actually score well if found
     for i in range(len(bits)//7):
         bits[i*7] = 1
@@ -24,7 +25,7 @@ def test_fix5_deinterleaver_search_exhausted():
 
 
     # Add noise to soft LLRs
-    llrs = np.where(interleaved == 1, 5.0, -5.0) + np.random.randn(len(interleaved))
+    llrs = np.where(interleaved == 1, 5.0, -5.0) + rng.standard_normal(len(interleaved))
     
     demod = DemodulationResult(
         hard_bits=interleaved,

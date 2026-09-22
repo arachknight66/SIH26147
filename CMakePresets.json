@@ -1,0 +1,34 @@
+{
+  "version": 4,
+  "configurePresets": [
+    {
+      "name": "native-release",
+      "displayName": "Native release tests",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/release-tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "SIH_BUILD_PYTHON": "OFF",
+        "SIH_BUILD_TESTS": "ON"
+      }
+    },
+    {
+      "name": "native-sanitized",
+      "displayName": "Native sanitizer tests",
+      "inherits": "native-release",
+      "binaryDir": "${sourceDir}/build/sanitized-tests",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "SIH_ENABLE_SANITIZERS": "ON"
+      }
+    }
+  ],
+  "buildPresets": [
+    {"name": "native-release", "configurePreset": "native-release"},
+    {"name": "native-sanitized", "configurePreset": "native-sanitized"}
+  ],
+  "testPresets": [
+    {"name": "native-release", "configurePreset": "native-release", "output": {"outputOnFailure": true}},
+    {"name": "native-sanitized", "configurePreset": "native-sanitized", "output": {"outputOnFailure": true}}
+  ]
+}

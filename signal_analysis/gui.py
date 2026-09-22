@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+from pathlib import Path
 from typing import Optional
 
 HAS_QT = True
@@ -7,25 +8,28 @@ try:
     from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                    QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
                                    QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
-                                   QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
-    from PySide6.QtCore import Qt
+                                   QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit, QProgressBar, QMessageBox)
+    from PySide6.QtCore import Qt, QTimer
     import pyqtgraph as pg
 except ImportError:
     try:
         from PyQt6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, 
                                      QHBoxLayout, QLabel, QPushButton, QFileDialog, QInputDialog,
                                      QDialog, QComboBox, QFormLayout, QLineEdit, QDialogButtonBox,
-                                     QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit)
-        from PyQt6.QtCore import Qt
+                                     QScrollArea, QFrame, QTableWidget, QTableWidgetItem, QHeaderView, QSplitter, QTextEdit, QProgressBar, QMessageBox)
+        from PyQt6.QtCore import Qt, QTimer
         import pyqtgraph as pg
     except ImportError:
         HAS_QT = False
 
 from .models import (SignalRecording, SourceFormat, MetadataValue, 
                      MetadataStatus, PipelineResult, PipelineStageStatus, FeatureValidity)
-from .loaders import WavReader, RawIQReader, RawIQConfig, read_sigmf
+from .loaders import RawIQConfig
 from .measurements import compute_psd, compute_spectrogram
 from .pipeline import run_full_pipeline
+from .jobs.analysis_job import AnalysisJob, JobState
+from .workflow import AnalysisRequest, ProductionAnalysisResult, run_production_analysis
+from .demo import demo_catalog, get_demo, reveal_ground_truth
 
 def _format_hz(hz: float) -> str:
     if hz is None: return "Unknown"
@@ -194,6 +198,17 @@ if HAS_QT:
             
             cf = recording.center_frequency_hz
             details += f"<b>Center Freq:</b> {_format_hz(cf.value)} [{cf.status.value}]<br>"
+            analysis = pipe_res.parameter_analysis
+            if isinstance(analysis, dict):
+                rate = analysis.get("symbol_rate", {})
+                bandwidth = analysis.get("occupied_bandwidth", {})
+                snr = analysis.get("snr", {})
+                if rate.get("value") is not None:
+                    details += f"<b>Estimated Symbol Rate:</b> {rate['value']:.3g} {rate.get('unit', '')} [{rate.get('validity', '')}]<br>"
+                if bandwidth.get("value") is not None:
+                    details += f"<b>Occupied Bandwidth:</b> {bandwidth['value']:.3g} {bandwidth.get('unit', '')}<br>"
+                if snr.get("value") is not None:
+                    details += f"<b>Estimated SNR:</b> {snr['value']:.1f} dB [{snr.get('validity', '')}]<br>"
             
             if recording.diagnostics:
                 details += "<b>Diagnostics:</b><br>"
@@ -225,10 +240,13 @@ if HAS_QT:
                 self.sync_text.setText(
                     format_stage_status(pipe_res.sync_status, pipe_res.hypothesis_status) + "<br>" +
                     f"<b>Locked:</b> {dm.hypothesis_confirmed}<br>"
+                    f"<b>Acquisition:</b> {sync.acquisition_status}<br>"
+                    f"<b>Bit Mapping:</b> {sync.mapping_status}<br>"
                     f"<b>CFO:</b> {sync.cfo_estimate:.1f} {sync.cfo_unit}<br>"
                     f"<b>Lock Quality:</b> {sync.lock_quality_metric:.2f}<br>"
                     f"<b>EVM:</b> {sync.evm_percent:.1f}%<br>"
-                    f"<b>Bit Count:</b> {len(dm.hard_bits)}"
+                    f"<b>Bit Count:</b> {len(dm.hard_bits)}<br>"
+                    f"<b>Phase Ambiguities:</b> {len(sync.unresolved_phase_rotations)}"
                 )
                 if self.parent_window:
                     self.parent_window.update_synced_constellation(dm, has_non_complex)
@@ -354,6 +372,32 @@ if HAS_QT:
             self.demo_btn = QPushButton("Demo Mode...")
             self.demo_btn.clicked.connect(self.show_demo_mode)
             self.sidebar_layout.addWidget(self.demo_btn)
+
+            self.fec_profile = QComboBox()
+            self.fec_profile.addItem("FEC: Uncoded", "UNCODED")
+            self.fec_profile.addItem("FEC: Convolutional K=7, r=1/2", "CONVOLUTIONAL_K7_R12")
+            self.fec_profile.addItem("FEC: Reed-Solomon (255,223)", "RS_255_223")
+            self.fec_profile.addItem("FEC: Concatenated K=7 + RS", "CONCATENATED_K7_RS_255_223")
+            self.fec_profile.addItem("FEC: LDPC", "LDPC")
+            self.sidebar_layout.addWidget(self.fec_profile)
+
+            self.job_status = QLabel("Analysis: idle")
+            self.sidebar_layout.addWidget(self.job_status)
+            self.job_progress = QProgressBar()
+            self.job_progress.setRange(0, 100)
+            self.job_progress.setValue(0)
+            self.sidebar_layout.addWidget(self.job_progress)
+            self.cancel_btn = QPushButton("Cancel analysis")
+            self.cancel_btn.setEnabled(False)
+            self.cancel_btn.clicked.connect(self.cancel_active_analysis)
+            self.sidebar_layout.addWidget(self.cancel_btn)
+
+            self._active_job: AnalysisJob[ProductionAnalysisResult] | None = None
+            self._active_request: AnalysisRequest | None = None
+            self._analysis_generation = 0
+            self._job_timer = QTimer(self)
+            self._job_timer.setInterval(40)
+            self._job_timer.timeout.connect(self._poll_analysis_job)
             
             self.sidebar = MetadataSidebar()
             self.sidebar.parent_window = self
@@ -366,17 +410,10 @@ if HAS_QT:
                     self.setWindowTitle("Demo Mode")
                     self.resize(500, 300)
                     self.layout = QVBoxLayout(self)
+                    self.fixtures = demo_catalog()
                     self.list = QComboBox()
-                    self.list.addItem("Clean QPSK (High SNR)", "demo_clean_qpsk.wav")
-                    self.list.addItem("Concatenated FEC (RS + BPSK)", "demo_concatenated.wav")
-                    self.list.addItem("Low SNR QPSK", "demo_low_snr_qpsk.wav")
-                    self.list.addItem("OFDM (Out of Scope)", "demo_ofdm_out_of_scope.wav")
-                    self.list.addItem("Real Valued (Audio)", "demo_real_valued_gate.wav")
-                    self.list.addItem("Clean 16-QAM (High SNR)", "demo_qam_clean.wav")
-                    self.list.addItem("Low SNR 16-QAM", "demo_qam_low_snr.wav")
-                    self.list.addItem("Concatenated 16-QAM (RS + FEC)", "demo_qam_concatenated.wav")
-                    self.list.addItem("64-QAM (Unsupported Order)", "demo_qam_unsupported_order.wav")
-                    self.list.addItem("16-QAM with CFO", "demo_qam_cfo_capture.wav")
+                    for fixture in self.fixtures:
+                        self.list.addItem(fixture.title, fixture.identifier)
                     self.layout.addWidget(QLabel("Select Demo Fixture:"))
                     self.layout.addWidget(self.list)
                     self.desc = QTextEdit()
@@ -386,41 +423,86 @@ if HAS_QT:
                     self.run_btn = QPushButton("Run Selected")
                     self.run_btn.clicked.connect(self.accept)
                     self.layout.addWidget(self.run_btn)
+                    self.reveal_btn = QPushButton("Reveal Ground Truth")
+                    self.reveal_btn.clicked.connect(self.reveal)
+                    self.layout.addWidget(self.reveal_btn)
                     self.list.currentIndexChanged.connect(self.update_desc)
                     self.update_desc()
                 def update_desc(self):
-                    idx = self.list.currentIndex()
-                    if idx == 0:
-                        self.desc.setText("Clean QPSK, high SNR, unencoded. Demonstrates Phase 2 confident classification + Phase 3 clean sync/demod. You'll see high hypothesis scores and lock quality.")
-                    elif idx == 1:
-                        self.desc.setText("Concatenated simulation. Shows framing and CRC detection on a BPSK signal. Demonstrates Phase 4/5 recovering HDLC frames successfully out of the payload.")
-                    elif idx == 2:
-                        self.desc.setText("Low SNR QPSK. Demonstrates how the pipeline degrades gracefully under noise, reflecting lower confidence in classification and lock metrics.")
-                    elif idx == 3:
-                        self.desc.setText("OFDM signal. Demonstrates correct rejection at Phase 2 (hypothesis status UNKNOWN) due to out-of-scope bimodal frequency distribution.")
-                    elif idx == 4:
-                        self.desc.setText("Real-valued audio. Demonstrates rejection at Phase 2 because the MVP is explicitly for complex I/Q baseband.")
-                    elif idx == 5:
-                        self.desc.setText("Clean 16-QAM, high SNR. Demonstrates accurate Phase 2 classification (HIGH tier) and Phase 3 lock. Note that 16-QAM's carrier recovery uses a distinct, decision-directed Costas loop architecture rather than the simpler phase-only loop used for BPSK/QPSK.")
-                    elif idx == 6:
-                        self.desc.setText("16-QAM at 10dB SNR. Demonstrates physical SNR-sensitivity of higher-order constellations. The constellation density causes higher error vectors (EVM ~17%) and a degraded lock quality metric compared to BPSK/QPSK at identical noise levels.")
-                    elif idx == 7:
-                        self.desc.setText("16-QAM Concatenated simulation (40dB SNR). Shows Phase 4/5 pipeline acting on a 16-QAM bitstream. Accurately decodes framing and CRC-8 payloads, maintaining end-to-end bit-exact payload recovery through the higher-order constellation demapping.")
-                    elif idx == 8:
-                        self.desc.setText("64-QAM (Unsupported). Demonstrates a KNOWN CLASSIFIER LIMITATION: instead of cleanly rejecting 64-QAM as UNKNOWN, the amplitude/phase discriminant features confidently mislabel it as 16-QAM (Score 1.0). Phase 3 then attempts to lock on it as 16-QAM, resulting in a high EVM (~21%).")
-                    elif idx == 9:
-                        self.desc.setText("16-QAM with slight CFO. Demonstrates a KNOWN CLASSIFIER LIMITATION: even tiny CFO amounts (e.g. 0.01 cycles/sample) spin the constellation, destroying the phase-dependent cumulant features (C40, C42). Phase 2 confidently misclassifies it as QPSK (Score ~0.58 vs 0.50), causing sync to subsequently fail. The Phase 3 loop never even gets to test its capture range because the Phase 2 classifier acts as a brittle gatekeeper.")
+                    self.desc.setPlainText(get_demo(self.list.currentData()).narration)
+                def reveal(self):
+                    truth = reveal_ground_truth(self.list.currentData())
+                    self.desc.append("\n\nGround truth (evaluation only):\n" + str(truth))
             
             dlg = DemoDialog(self)
             if dlg.exec():
-                import os
-                fixture_file = dlg.list.currentData()
-                path = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "fixtures", "demo", fixture_file)
-                if os.path.exists(path):
-                    self.open_file(override_path=path, force_stereo_iq=True)
+                fixture = get_demo(dlg.list.currentData())
+                if fixture.path.exists():
+                    self.start_analysis_request(fixture.analysis_request(self._selected_pipeline_config()))
                 else:
-                    from PySide6.QtWidgets import QMessageBox
-                    QMessageBox.warning(self, "Missing Fixture", f"Fixture not found at {path}")
+                    QMessageBox.warning(self, "Missing Fixture", f"Fixture not found at {fixture.path}")
+
+        def _selected_pipeline_config(self) -> dict:
+            return {"fec_profile": self.fec_profile.currentData()}
+
+        def start_analysis_request(self, request: AnalysisRequest) -> None:
+            """Run the shared production workflow without touching Qt from its worker."""
+            if self._active_job is not None and not self._active_job.done:
+                self._active_job.cancel()
+            self._analysis_generation += 1
+            self._active_request = request
+            self._active_job = AnalysisJob(
+                lambda cancellation, progress: run_production_analysis(request, cancellation, progress)
+            ).start()
+            self.open_btn.setEnabled(False)
+            self.demo_btn.setEnabled(False)
+            self.cancel_btn.setEnabled(True)
+            self.job_progress.setValue(0)
+            self.job_status.setText(f"Analysis: loading {request.path.name}")
+            self._job_timer.start()
+
+        def cancel_active_analysis(self) -> None:
+            if self._active_job is not None and not self._active_job.done:
+                self._active_job.cancel()
+                self.job_status.setText("Analysis: cancellation requested")
+
+        def _finish_analysis_ui(self) -> None:
+            self._job_timer.stop()
+            self.open_btn.setEnabled(True)
+            self.demo_btn.setEnabled(True)
+            self.cancel_btn.setEnabled(False)
+
+        def _poll_analysis_job(self) -> None:
+            job = self._active_job
+            if job is None:
+                self._finish_analysis_ui()
+                return
+            snapshot = job.snapshot()
+            self.job_progress.setValue(round(snapshot.progress_fraction * 100))
+            if snapshot.state is JobState.RUNNING:
+                return
+            self._finish_analysis_ui()
+            self._active_job = None
+            if snapshot.state is JobState.FAILED:
+                self.job_status.setText("Analysis: failed")
+                QMessageBox.critical(self, "Analysis failed", snapshot.error or "Unknown analysis error")
+                return
+            try:
+                outcome = job.result(timeout=0)
+            except Exception as exc:
+                self.job_status.setText("Analysis: failed")
+                QMessageBox.critical(self, "Analysis failed", f"{type(exc).__name__}: {exc}")
+                return
+            if outcome.execution_status.name == "CANCELLED":
+                self.job_status.setText("Analysis: cancelled")
+                return
+            if outcome.recording is None or outcome.pipeline_result is None:
+                self.job_status.setText("Analysis: incomplete")
+                return
+            self.update_plots(outcome.recording)
+            self.sidebar.update_metadata(outcome.recording, outcome.pipeline_result)
+            self.job_progress.setValue(100)
+            self.job_status.setText("Analysis: completed")
 
         def _guess_stereo_mode_heuristic(self, path: str) -> str:
             import wave
@@ -449,13 +531,12 @@ if HAS_QT:
                     var0 = np.var(ch0_c)
                     var1 = np.var(ch1_c)
                     
-                    frames = wf.readframes(1024)
-                    if wf.getsampwidth() == 2:
-                        samples = np.frombuffer(frames, dtype=np.int16).reshape(-1, 2)
-                        # If channels are nearly identical, probably real audio
-                        if np.allclose(samples[:, 0], samples[:, 1], atol=10):
+                    if var0 > 0 and var1 > 0:
+                        correlation = abs(float(np.mean(ch0_c * ch1_c) / np.sqrt(var0 * var1)))
+                        if correlation >= 0.95:
                             return "stereo_real"
                         return "stereo_iq"
+                    return "unable to analyze"
             except Exception:
                 return "unable to analyze"
 
@@ -504,10 +585,18 @@ if HAS_QT:
                             if "stereo_real" in item: mode = "stereo_real"
                             elif "stereo_iq" in item: mode = "stereo_iq"
                             
-                    reader = WavReader(path, mode=mode)
-                    recording = reader.read()
+                    request = AnalysisRequest(
+                        path=Path(path),
+                        wav_stereo_mode=mode,
+                        pipeline_config=self._selected_pipeline_config(),
+                        origin="file",
+                    )
                 elif path.endswith(".sigmf-meta"):
-                    recording = read_sigmf(path)
+                    request = AnalysisRequest(
+                        path=Path(path),
+                        pipeline_config=self._selected_pipeline_config(),
+                        origin="file",
+                    )
                 else:
                     dialog = RawIQDialog(self)
                     if self._last_raw_config:
@@ -518,23 +607,21 @@ if HAS_QT:
                     if dialog.exec():
                         config = dialog.get_config()
                         self._last_raw_config = config
-                        reader = RawIQReader(path, config)
-                        recording = reader.read()
+                        request = AnalysisRequest(
+                            path=Path(path), raw_iq_config=config,
+                            pipeline_config=self._selected_pipeline_config(), origin="file",
+                        )
                     else:
                         return
-                        
-                self.update_plots(recording)
-                self.sidebar.update_metadata(recording)
+                self.start_analysis_request(request)
             except (OSError, ValueError) as e:
                 # File IO or parsing errors
-                from PySide6.QtWidgets import QMessageBox
                 QMessageBox.critical(self, "File Error", f"Failed to open file:\n{e}")
             except Exception as e:
                 # Unexpected crashes should surface visibly as a Diagnostic
                 import traceback
                 tb_str = traceback.format_exc()
                 print(tb_str)
-                from PySide6.QtWidgets import QMessageBox
                 from .models import Diagnostic, Severity, PipelineResult, PipelineStageStatus
                 
                 QMessageBox.critical(self, "Pipeline Crash", f"An unexpected pipeline error occurred:\n{type(e).__name__}: {e}")
@@ -615,7 +702,11 @@ if HAS_QT:
             self.psd_plot.clear()
             self.psd_plot.plot(psd_result.frequencies, 10 * np.log10(psd_result.psd + 1e-12), pen='g')
             self.psd_plot.setLabel('bottom', "Frequency", units=psd_result.freq_unit)
-            self.psd_plot.setLabel('left', "Magnitude", units="dB")
+            self.psd_plot.setLabel('left', f"PSD (dB {psd_result.power_unit})")
+            self.psd_plot.setTitle(
+                f"Power Spectral Density — {psd_result.processed_samples:,}/"
+                f"{psd_result.source_samples:,} samples"
+            )
             
             spec_result = compute_spectrogram(recording)
             self.waterfall_img.setImage(10 * np.log10(spec_result.Sxx.T + 1e-12), autoLevels=True)
@@ -629,8 +720,12 @@ if HAS_QT:
                 if f_range == 0: f_range = 1.0
                 self.waterfall_img.setRect(t0, f0, t_range, f_range)
                 
-            self.waterfall_plot.setLabel('bottom', "Time", units="s")
+            self.waterfall_plot.setLabel('bottom', "Time", units=spec_result.time_unit)
             self.waterfall_plot.setLabel('left', "Frequency", units=spec_result.freq_unit)
+            self.waterfall_plot.setTitle(
+                f"Waterfall — {spec_result.processed_samples:,}/"
+                f"{spec_result.source_samples:,} samples"
+            )
             
             # Constellation sub-sampled to ~2000 points
             max_const = 2000

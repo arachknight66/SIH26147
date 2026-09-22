@@ -7,31 +7,78 @@ from .models import (
     HypothesisStatus,
     DemodulationResult
 )
+from .native import deinterleave as native_deinterleave, require_native
+
+
+def apply_configured_deinterleaver(
+    bits: np.ndarray, llrs: np.ndarray, profile: Dict[str, Any]
+) -> DeinterleavingResult:
+    """Apply an explicit native interleaver profile without blind seed guessing."""
+    native = require_native()
+    family_name = str(profile.get("family", "NONE")).upper().replace("-", "_")
+    try:
+        family = getattr(native.InterleaverFamily, family_name)
+    except AttributeError as exc:
+        raise ValueError(f"unsupported interleaver family {family_name}") from exc
+    config = native.NativeInterleaverConfig()
+    config.family = family
+    config.rows = int(profile.get("rows", 0))
+    config.columns = int(profile.get("columns", profile.get("cols", 0)))
+    config.read_by_row = bool(profile.get("read_by_row", True))
+    config.branches = int(profile.get("branches", 0))
+    config.delay = int(profile.get("delay", 0))
+    config.seed = int(profile.get("seed", 0))
+    if "permutation" in profile:
+        config.permutation = [int(value) for value in profile["permutation"]]
+    native_result = native_deinterleave(
+        np.ascontiguousarray(bits, dtype=np.uint8),
+        np.ascontiguousarray(llrs, dtype=np.float32),
+        config=config,
+    )
+    diagnostics = [
+        Diagnostic(getattr(Severity, item.severity.name), item.code, item.message, item.evidence)
+        for item in native_result.diagnostics
+    ]
+    hypothesis = DeinterleaverHypothesis(
+        family=DeinterleaverFamily[family_name],
+        parameters=dict(profile),
+        score=float(profile.get("score", 0.0)),
+        falsification_evidence=["Explicit configured profile; no blind seed or permutation inference was attempted."],
+        status=HypothesisStatus.HYPOTHESIS_UNVERIFIED,
+    )
+    return DeinterleavingResult(
+        bits=np.asarray(native_result.bits),
+        llrs_reordered=np.asarray(native_result.llrs),
+        hypothesis=hypothesis,
+        cross_validation_score=0.0,
+        diagnostics=diagnostics,
+    )
 
 def _deinterleave_block(data: np.ndarray, rows: int, cols: int, read_by_row: bool = True) -> np.ndarray:
     """
     Block de-interleaver. Assumes data can be reshaped to (rows, cols).
     If read_by_row is True, it fills by column and reads by row, else fills by row reads by col.
     """
-    total = rows * cols
-    if len(data) < total:
-        return data  # Too short to apply full block, ignore or pad? For MVP, return as is.
-    
-    # Truncate to multiple of block size
-    n_blocks = len(data) // total
-    out = np.zeros_like(data[:n_blocks * total])
-    
-    for b in range(n_blocks):
-        block = data[b*total : (b+1)*total]
-        if read_by_row:
-            # Filled by column, read by row (transpose)
-            reshaped = block.reshape((cols, rows)).T
-        else:
-            # Filled by row, read by column
-            reshaped = block.reshape((rows, cols)).T
-        out[b*total : (b+1)*total] = reshaped.flatten()
-        
-    return out
+    if rows <= 0 or cols <= 0:
+        raise ValueError("block interleaver rows and cols must be positive")
+    if data.ndim != 1:
+        raise ValueError("interleaver input must be one-dimensional")
+    native = require_native()
+    # The legacy helper's two transpose directions are inverses.  The native
+    # API is named from the receiver's perspective, so select the inverse
+    # direction here while retaining the public helper's historical semantics.
+    config = native.NativeInterleaverConfig()
+    config.family = native.InterleaverFamily.BLOCK
+    config.rows = int(rows)
+    config.columns = int(cols)
+    config.read_by_row = not bool(read_by_row)
+    if data.dtype == np.uint8:
+        bits = np.ascontiguousarray(data)
+        llrs = np.where(bits == 1, 1.0, -1.0).astype(np.float32)
+        return np.asarray(native_deinterleave(bits, llrs, config=config).bits)
+    values = np.ascontiguousarray(data, dtype=np.float32)
+    bits = (values > 0).astype(np.uint8)
+    return np.asarray(native_deinterleave(bits, values, config=config).llrs, dtype=data.dtype)
 
 def structural_payoff_score(bits: np.ndarray) -> float:
     """
@@ -202,7 +249,10 @@ def falsify_and_cross_validate(bits: np.ndarray, hyp: DeinterleaverHypothesis) -
         margin_1 = base_score_full - score_pert_1
         margin_2 = base_score_full - score_pert_2
         
-        if margin_1 < (0.05 * base_score_full) and margin_2 < (0.05 * base_score_full):
+        # Short random streams can produce modest autocorrelation changes under
+        # a transpose.  Treat low absolute payoff as ambiguous even if a local
+        # perturbation happens to reduce it.
+        if base_score_full < 10.0 or (margin_1 < (0.05 * base_score_full) and margin_2 < (0.05 * base_score_full)):
             evidence.append(f"Falsification failed: Perturbations yielded margins ({margin_1:.2f}, {margin_2:.2f}) < 5% of base score. Unconstrained parameters.")
             status = HypothesisStatus.AMBIGUOUS
         else:
@@ -222,6 +272,11 @@ def attempt_deinterleaving(demod_result: DemodulationResult, config: Optional[Di
     """
     Search, falsify, and apply best deinterleaver.
     """
+    config = config or {}
+    explicit = config.get("interleaver_profile")
+    if explicit:
+        result = apply_configured_deinterleaver(demod_result.hard_bits, demod_result.soft_llrs, explicit)
+        return result, [result.hypothesis]
     hypotheses = search_interleaver_hypotheses(demod_result, config)
     
     # Take top hypothesis, attempt falsification
@@ -262,4 +317,3 @@ def attempt_deinterleaving(demod_result: DemodulationResult, config: Optional[Di
         diagnostics=diags
     )
     return res, hypotheses
-

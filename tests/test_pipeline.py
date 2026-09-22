@@ -80,7 +80,11 @@ def test_pipeline_synthetic_end_to_end():
     signal_analysis.pipeline.decode_concatenated = fake_decode
     
     try:
-        res = run_full_pipeline(recording)
+        res = run_full_pipeline(recording, {
+            "unknown_threshold": 0.4,
+            "receiver_hypothesis_threshold": 0.4,
+            "phase_reference_radians": 0.0,
+        })
     finally:
         signal_analysis.pipeline.decode_concatenated = original_decode
 

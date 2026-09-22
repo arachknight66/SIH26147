@@ -1,6 +1,5 @@
 from .constants import DEFAULT_MAX_ANALYSIS_SAMPLES
 import numpy as np
-from scipy import signal
 from dataclasses import dataclass
 from typing import Tuple, Dict, Any, Optional
 
@@ -145,33 +144,53 @@ class PSDResult:
     frequencies: np.ndarray
     psd: np.ndarray
     freq_unit: str
+    power_unit: str = ""
+    processed_samples: int = 0
+    source_samples: int = 0
+
+
+def _native_spectral(recording: SignalRecording, nperseg: int, max_stft_frames: int):
+    from .native import require_native
+
+    if nperseg <= 0:
+        raise ValueError("nperseg must be positive")
+    samples = recording.samples
+    if recording.semantic_type != "complex_iq":
+        samples = samples[:, 0] if samples.ndim > 1 else samples
+        samples = samples.real
+    samples = np.ascontiguousarray(samples, dtype=np.complex64)
+    available = max(16, min(nperseg, max(16, len(samples)), 1 << 20))
+    fft_size = 1 << (available.bit_length() - 1)
+    native = require_native()
+    config = native.SpectralConfig()
+    config.fft_size = fft_size
+    config.hop_size = max(1, fft_size // 2)
+    config.complex_input = recording.semantic_type == "complex_iq"
+    if (
+        recording.sample_rate_hz.status == MetadataStatus.KNOWN
+        and recording.sample_rate_hz.value is not None
+    ):
+        config.sample_rate_hz = recording.sample_rate_hz.value
+    config.max_stft_frames = max_stft_frames
+    analyzer = native.SpectralAnalyzer(config)
+    analyzer.update(samples)
+    analyzer.finish(include_partial=True)
+    return analyzer.result()
 
 def compute_psd(recording: SignalRecording, nperseg: int = 1024) -> PSDResult:
     """
     Compute Welch's PSD.
     Two-sided for complex, one-sided for real.
     """
-    is_complex = recording.semantic_type == "complex_iq"
-    
-    if recording.sample_rate_hz.status == MetadataStatus.KNOWN and recording.sample_rate_hz.value is not None:
-        fs = recording.sample_rate_hz.value
-        unit = "Hz"
-    else:
-        fs = 1.0
-        unit = "cycles/sample"
-        
-    if is_complex:
-        f, pxx = signal.welch(recording.samples, fs=fs, nperseg=nperseg, return_onesided=False, window='hann')
-        f = np.fft.fftshift(f)
-        pxx = np.fft.fftshift(pxx)
-    else:
-        if recording.samples.ndim > 1:
-            data = recording.samples[:, 0].real
-        else:
-            data = recording.samples.real
-        f, pxx = signal.welch(data, fs=fs, nperseg=nperseg, return_onesided=True, window='hann')
-        
-    return PSDResult(f, pxx, unit)
+    result = _native_spectral(recording, nperseg, 0)
+    return PSDResult(
+        result.frequencies,
+        result.psd,
+        result.frequency_unit,
+        result.power_unit,
+        int(result.processed_samples),
+        len(recording.samples),
+    )
 
 @dataclass(frozen=True)
 class SpectrogramResult:
@@ -179,33 +198,37 @@ class SpectrogramResult:
     times: np.ndarray
     Sxx: np.ndarray
     freq_unit: str
+    time_unit: str = ""
+    power_unit: str = ""
+    processed_samples: int = 0
+    source_samples: int = 0
+    dropped_frames: int = 0
 
 def compute_spectrogram(recording: SignalRecording, nperseg: int = 256) -> SpectrogramResult:
     """
     Compute STFT spectrogram.
     """
-    is_complex = recording.semantic_type == "complex_iq"
-    
-    if recording.sample_rate_hz.status == MetadataStatus.KNOWN and recording.sample_rate_hz.value is not None:
-        fs = recording.sample_rate_hz.value
-        unit = "Hz"
-    else:
-        fs = 1.0
-        unit = "cycles/sample"
-        
     # Limit max samples to prevent massive UI freezes when generating waterfall images
     max_samples = DEFAULT_MAX_ANALYSIS_SAMPLES
-    samples = recording.samples[:max_samples]
-        
-    if is_complex:
-        f, t, Sxx = signal.spectrogram(samples, fs=fs, nperseg=nperseg, return_onesided=False, window='hann')
-        f = np.fft.fftshift(f)
-        Sxx = np.fft.fftshift(Sxx, axes=0)
-    else:
-        if samples.ndim > 1:
-            data = samples[:, 0].real
-        else:
-            data = samples.real
-        f, t, Sxx = signal.spectrogram(data, fs=fs, nperseg=nperseg, return_onesided=True, window='hann')
-        
-    return SpectrogramResult(f, t, Sxx, unit)
+    limited = SignalRecording(
+        samples=recording.samples[:max_samples],
+        source_format=recording.source_format,
+        original_dtype=recording.original_dtype,
+        semantic_type=recording.semantic_type,
+        sample_rate_hz=recording.sample_rate_hz,
+        center_frequency_hz=recording.center_frequency_hz,
+        provenance=recording.provenance,
+        diagnostics=recording.diagnostics,
+    )
+    result = _native_spectral(limited, nperseg, 512)
+    return SpectrogramResult(
+        result.frequencies,
+        result.times,
+        result.stft_power.T,
+        result.frequency_unit,
+        result.time_unit,
+        result.power_unit,
+        int(result.processed_samples),
+        len(recording.samples),
+        int(result.dropped_stft_frames),
+    )

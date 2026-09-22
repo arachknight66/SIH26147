@@ -2,6 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from pathlib import Path
 import numpy as np
+import time
 
 # Need to import PySide6 modules correctly if HAS_QT is true
 from signal_analysis.gui import HAS_QT
@@ -19,6 +20,14 @@ def setup_app():
         app = QApplication(sys.argv)
     return app
 
+def wait_for_analysis(app, window, timeout_s=10.0):
+    deadline = time.monotonic() + timeout_s
+    while window._active_job is not None and time.monotonic() < deadline:
+        app.processEvents()
+        time.sleep(0.01)
+    app.processEvents()
+    assert window._active_job is None, "analysis job did not finish"
+
 def test_gui_phase3_clean_qpsk():
     app = setup_app()
     wav_path = Path("test_clean_qpsk.wav").absolute()
@@ -31,6 +40,7 @@ def test_gui_phase3_clean_qpsk():
                     with patch("signal_analysis.gui.QMessageBox", create=True):
                         with patch.object(window, "update_plots"):
                             window.open_file()
+                            wait_for_analysis(app, window)
                     
     sync_html = window.sidebar.sync_text.text()
     
@@ -49,6 +59,7 @@ def test_gui_phases45_concatenated():
                     with patch("signal_analysis.gui.QMessageBox", create=True):
                         with patch.object(window, "update_plots"):
                             window.open_file()
+                            wait_for_analysis(app, window)
                     
     # Check FEC
     fec_html = window.sidebar.fec_text.text()
@@ -71,9 +82,9 @@ def test_gui_phases45_concatenated():
     # Actually, EB90 is 1110 1011 1001 0000 -> E B 9 0.
     assert "EB 90" in bits_hex or "eb90" in bits_hex.lower() or len(bits_hex) > 10
 
-def test_gui_negative_paths_dab():
+def test_gui_negative_paths_dab(tmp_path):
     app = setup_app()
-    wav_path = Path("dab_test.wav").absolute()
+    wav_path = tmp_path / "dab_test.wav"
     
     # We must create dab_test.wav first
     import wave
@@ -93,6 +104,7 @@ def test_gui_negative_paths_dab():
                     with patch("signal_analysis.gui.QMessageBox", create=True):
                         with patch.object(window, "update_plots"):
                             window.open_file()
+                            wait_for_analysis(app, window)
                             
     # It should fail at Phase 2 (Classification) as UNKNOWN because it's OFDM-like noise
     sync_html = window.sidebar.sync_text.text()

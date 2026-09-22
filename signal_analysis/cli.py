@@ -39,11 +39,18 @@ def run_cli():
     parser.add_argument("input", help="Path to input file or directory")
     parser.add_argument("--output", choices=["json", "text"], default="json", help="Output format")
     parser.add_argument("--wav-stereo-mode", choices=["unresolved", "stereo_real", "stereo_iq"], default="unresolved", help="Stereo interpretation for WAV files")
+    parser.add_argument("--raw-dtype", help="Raw IQ dtype (requires --sample-rate-hz)")
+    parser.add_argument("--raw-iq-order", choices=["iq", "qi"], default="iq", help="Raw real-pair order")
+    parser.add_argument("--raw-endian", choices=["little", "big"], default="little", help="Raw IQ byte order")
+    parser.add_argument("--sample-rate-hz", type=float, help="Raw IQ sample rate in Hz")
+    parser.add_argument("--center-frequency-hz", type=float, default=0.0, help="Raw IQ center frequency in Hz")
+    parser.add_argument("--fec-profile", default="UNCODED", help="Explicit FEC profile for the production pipeline")
     args = parser.parse_args()
     
     # We defer these imports so we don't accidentally import GUI stuff at module load
-    from .loaders import WavReader, read_sigmf
-    from .pipeline import run_full_pipeline
+    from .loaders import RawIQConfig
+    from .release import build_run_metadata
+    from .workflow import AnalysisRequest, run_production_analysis
     
     input_path = Path(args.input)
     files_to_process = []
@@ -60,19 +67,31 @@ def run_cli():
             continue
             
         try:
-            path_str = str(fpath)
-            if path_str.endswith('.wav'):
-                reader = WavReader(path_str, mode=args.wav_stereo_mode)
-                recording = reader.read()
-            elif path_str.endswith('.sigmf-meta'):
-                recording = read_sigmf(path_str)
-            else:
-                raise ValueError("CLI currently only supports .wav or .sigmf-meta auto-loading")
-                
-            pipe_res = run_full_pipeline(recording)
+            raw_config = None
+            if fpath.suffix.lower() not in {".wav"} and not str(fpath).lower().endswith(".sigmf-meta"):
+                if args.raw_dtype is None or args.sample_rate_hz is None:
+                    raise ValueError("raw IQ input requires --raw-dtype and --sample-rate-hz")
+                raw_config = RawIQConfig(
+                    dtype=args.raw_dtype,
+                    sample_rate_hz=args.sample_rate_hz,
+                    center_frequency_hz=args.center_frequency_hz,
+                    iq_order=args.raw_iq_order.upper(),
+                    endian=args.raw_endian,
+                )
+            outcome = run_production_analysis(AnalysisRequest(
+                path=fpath,
+                wav_stereo_mode=args.wav_stereo_mode,
+                raw_iq_config=raw_config,
+                pipeline_config={"fec_profile": args.fec_profile},
+                origin="cli",
+            ))
+            pipe_res = outcome.pipeline_result
+            if pipe_res is None:
+                raise RuntimeError(f"analysis did not complete: {outcome.execution_status.value}")
             
             # Serialize
             res_dict = _enum_to_str(pipe_res)
+            res_dict["run_metadata"] = build_run_metadata(outcome)
             
             # Remove giant arrays from the output explicitly
             if 'recording' in res_dict:

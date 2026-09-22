@@ -103,129 +103,79 @@ def psk_qam_demodulate(symbols: np.ndarray, modulation: str) -> Tuple[np.ndarray
     return hard_bits, soft_llrs, evm
 
 def attempt_synchronization(recording: SignalRecording, hyp: ModulationHypothesis, config: dict) -> DemodulationResult:
-    """Attempt sync on a single hypothesis."""
+    """Run one modulation hypothesis through the native Phase 4 receiver."""
     c_params = hyp.candidate_parameters
     if c_params.symbol_rate is None or c_params.samples_per_symbol is None:
         diag = Diagnostic(Severity.ERROR, "SYNC_MISSING_PARAMS", "Hypothesis lacks required symbol rate.", "")
         sync_res = SynchronizationResult(0.0, "cycles/sample", 0.0, False, False, 999.0, 100.0, [diag])
         return DemodulationResult(np.array([]), np.array([]), 1, np.array([]), sync_res, hyp.label, False)
         
-    sps = c_params.samples_per_symbol
-    mod = hyp.label
-    
-    max_samples = DEFAULT_MAX_ANALYSIS_SAMPLES
-    samples = recording.samples[:max_samples]
+    from .native import demodulate as native_demodulate, require_native
+
+    native = require_native()
+    native_config = native.ReceiverConfig()
+    native_config.modulation = hyp.label
+    native_config.samples_per_symbol = float(c_params.samples_per_symbol)
+    native_config.sample_rate_hz = recording.sample_rate_hz.value
+    native_config.pulse_shape = str(config.get("pulse_shape", "auto"))
+    native_config.rrc_rolloff = float(config.get("rrc_rolloff", 0.35))
+    native_config.acquisition_symbols = int(config.get("acquisition_symbols", 16))
+    if c_params.carrier_offset is not None:
+        if c_params.carrier_offset_unit == "Hz" and recording.sample_rate_hz.value:
+            native_config.coarse_cfo_cycles_per_sample = c_params.carrier_offset / recording.sample_rate_hz.value
+        elif c_params.carrier_offset_unit == "cycles/sample":
+            native_config.coarse_cfo_cycles_per_sample = c_params.carrier_offset
+    if "phase_reference_radians" in config:
+        native_config.phase_reference_radians = float(config["phase_reference_radians"])
+    if "carrier_reference_cycles_per_sample" in config:
+        native_config.carrier_reference_cycles_per_sample = float(config["carrier_reference_cycles_per_sample"])
+    if "noise_variance" in config:
+        native_config.noise_variance = float(config["noise_variance"])
+
+    samples = recording.samples[:DEFAULT_MAX_ANALYSIS_SAMPLES]
     if samples.ndim > 1:
         samples = samples[:, 0]
-        
-    diagnostics = []
-    
-    if mod == "2-FSK":
-        # Extract features from Phase 2 frequency extractor
-        # Coarse CFO is done by picking the peaks. 
-        # But we can just use the evidence f0 and f1 if available, otherwise estimate from samples
-        prod = samples[1:] * np.conj(samples[:-1])
-        f_inst = np.angle(prod) / (2 * np.pi)
-        hist, bin_edges = np.histogram(f_inst, bins=64, range=(-0.5, 0.5))
-        peaks = []
-        for i in range(1, 63):
-            if hist[i] > hist[i-1] and hist[i] > hist[i+1]:
-                peaks.append((hist[i], bin_edges[i]))
-        peaks = sorted(peaks, key=lambda x: x[0], reverse=True)
-        if len(peaks) >= 2:
-            f0 = peaks[0][1]
-            f1 = peaks[1][1]
-        else:
-            f0, f1 = -0.1, 0.1 # fallback
-            
-        clock_locked, lock_quality, sym_idx = recover_timing_fsk(samples, sps)
-        hard_bits, soft_llrs, decisions, evm = fsk_dual_correlator(samples, sym_idx, f0, f1)
-        carrier_locked = True # FSK non-coherent correlator doesn't need explicit carrier lock
-        cfo = 0.0
-        cfo_unit = "cycles/sample"
-        bps = 1
-        
-    else:
-        # PSK/QAM
-        M_map = {"BPSK": 2, "QPSK": 4, "16-QAM": 4, "8PSK": 8}
-        if mod not in M_map:
-            diag = Diagnostic(Severity.ERROR, "SYNC_UNSUPPORTED", f"Unsupported modulation {mod}", "")
-            sync_res = SynchronizationResult(0.0, "cycles/sample", 0.0, False, False, 999.0, 100.0, [diag])
-            return DemodulationResult(np.array([]), np.array([]), 1, np.array([]), sync_res, mod, False)
-            
-        M = M_map[mod]
-        cfo = estimate_coarse_cfo_psk_qam(samples, M)
-        cfo_unit = "cycles/sample"
-        
-        # Check CFO bounds against candidate bandwidth
-        # Rough check: bandwidth is often roughly 1/SPS in cycles/sample
-        candidate_bw = 1.0 / sps if c_params.bandwidth_hz is None else (1.0 / sps) # normalized
-        if abs(cfo) > candidate_bw * 0.5:
-            diag = Diagnostic(Severity.ERROR, "CFO_OUT_OF_BOUNDS", f"CFO {cfo:.4f} exceeds max expected {candidate_bw*0.5:.4f}", "")
-            diagnostics.append(diag)
-            # Proceed anyway, but we will likely fail lock
-            
-        # Correct coarse CFO
-        t = np.arange(len(samples))
-        corrected_samples = samples * np.exp(-1j * 2 * np.pi * cfo * t)
-        
-        # AGC for timing recovery
-        rms = np.sqrt(np.mean(np.abs(corrected_samples)**2))
-        if rms > 1e-9:
-            corrected_samples /= rms
-
-        
-        # Timing recovery
-        syms_timed, clock_locked, lock_quality, sym_idx = recover_timing_gardner(corrected_samples, sps)
-        
-        # Carrier recovery
-        # AGC again to normalize output symbols for EVM and Costas
-        rms_timed = np.sqrt(np.mean(np.abs(syms_timed)**2))
-        if rms_timed > 1e-9:
-            syms_timed /= rms_timed
-        
-        decisions, carrier_locked, phase_var = recover_carrier_costas(syms_timed, mod)
-        
-        # Demodulate
-        hard_bits, soft_llrs, evm = psk_qam_demodulate(decisions, mod)
-        bps = CONSTELLATION_MAPS[mod]["bits_per_symbol"]
-        
-    # Lock thresholds
-    evm_threshold = 35.0 # Percent. Configurable.
-    hypothesis_confirmed = clock_locked and carrier_locked and evm < evm_threshold
-    
-    if not hypothesis_confirmed:
-        diagnostics.append(Diagnostic(Severity.WARNING, "SYNC_FAILED", "Failed to confirm hypothesis", f"clock={clock_locked}, carrier={carrier_locked}, evm={evm:.2f}"))
-        
-    # Convert CFO to Hz if possible
-    if c_params.symbol_rate_unit == "Hz" and c_params.symbol_rate is not None:
-        fs = c_params.symbol_rate * sps
-        cfo_hz = cfo * fs
-        cfo_final = cfo_hz
-        cfo_unit_final = "Hz"
-    else:
-        cfo_final = cfo
-        cfo_unit_final = cfo_unit
-        
+    samples = np.ascontiguousarray(samples, dtype=np.complex64)
+    native_result = native_demodulate(samples, config=native_config)
+    diagnostics = [
+        Diagnostic(
+            getattr(Severity, item.severity.name),
+            item.code,
+            item.message,
+            item.evidence,
+        )
+        for item in native_result.diagnostics
+    ]
+    locked = native_result.acquisition_status.name == "LOCKED"
+    # Receiver evidence is combined with the independent upstream ranking; low EVM alone is not confirmation.
+    hypothesis_confirmed = locked and hyp.score >= float(config.get("receiver_hypothesis_threshold", 0.55))
+    if not hypothesis_confirmed and not diagnostics:
+        diagnostics.append(Diagnostic(Severity.WARNING, "SYNC_FAILED", "Native receiver did not lock this hypothesis.", f"status={native_result.acquisition_status.name}"))
     sync_res = SynchronizationResult(
-        cfo_estimate=float(cfo_final),
-        cfo_unit=cfo_unit_final,
-        timing_offset_fractional_symbols=0.0, # Not strictly tracked cleanly in our Gardner loop
-        symbol_clock_locked=clock_locked,
-        carrier_locked=carrier_locked,
-        lock_quality_metric=lock_quality,
-        evm_percent=evm,
-        diagnostics=diagnostics
+        cfo_estimate=float(native_result.carrier_offset),
+        cfo_unit=native_result.carrier_offset_unit,
+        timing_offset_fractional_symbols=float(native_result.timing_offset_samples / c_params.samples_per_symbol),
+        symbol_clock_locked=locked,
+        carrier_locked=locked,
+        lock_quality_metric=float(native_result.timing_error),
+        evm_percent=float(native_result.evm_percent),
+        diagnostics=diagnostics,
+        acquisition_status=native_result.acquisition_status.name,
+        mapping_status=native_result.mapping_status.name,
+        unresolved_phase_rotations=list(native_result.unresolved_phase_rotations),
+        unresolved_carrier_offsets=list(native_result.unresolved_carrier_offsets),
+        timing_offset_samples=float(native_result.timing_offset_samples),
     )
-    
     return DemodulationResult(
-        hard_bits=hard_bits,
-        soft_llrs=soft_llrs,
-        bits_per_symbol=bps,
-        symbol_decisions=decisions,
+        hard_bits=np.asarray(native_result.hard_bits),
+        soft_llrs=np.asarray(native_result.soft_llrs),
+        bits_per_symbol=int(native_result.bits_per_symbol),
+        symbol_decisions=np.asarray(native_result.symbols),
         sync_result=sync_res,
-        source_hypothesis_label=mod,
-        hypothesis_confirmed=hypothesis_confirmed
+        source_hypothesis_label=hyp.label,
+        hypothesis_confirmed=hypothesis_confirmed,
+        mapping_verified=native_result.mapping_status.name == "VERIFIED",
+        sample_offsets=np.asarray(native_result.sample_offsets),
     )
 
 def attempt_synchronization_multi_hypothesis(recording: SignalRecording, hypotheses: List[ModulationHypothesis], config: dict) -> List[DemodulationResult]:

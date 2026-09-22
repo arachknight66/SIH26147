@@ -19,10 +19,10 @@ def test_demo_mode_fixtures():
         "demo_qam_clean.wav": PipelineStageStatus.COMPLETED,
         "demo_qam_low_snr.wav": PipelineStageStatus.COMPLETED,
         "demo_qam_concatenated.wav": PipelineStageStatus.COMPLETED,
-        # The unsupported 64-QAM gets mislabeled confidently as 16-QAM and goes through to sync (where EVM is high but sync_status still completes)
+        # The native beta profile includes high-order square QAM acquisition.
         "demo_qam_unsupported_order.wav": PipelineStageStatus.COMPLETED,
-        # 16-QAM with CFO gets confidently mislabeled as QPSK, which fails sync because QPSK costas loop cannot lock it.
-        "demo_qam_cfo_capture.wav": PipelineStageStatus.FAILED
+        # CFO-tolerant estimation now passes the correct candidate to the native receiver.
+        "demo_qam_cfo_capture.wav": PipelineStageStatus.COMPLETED
     }
 
     for fname, expected_status in fixtures.items():

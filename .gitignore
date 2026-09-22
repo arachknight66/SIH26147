@@ -1,0 +1,13 @@
+.venv/
+build/
+data/
+dist/
+wheelhouse/
+*.egg-info/
+*.so
+*.pyd
+*.dll
+*.dylib
+.pytest_cache/
+__pycache__/
+*.py[cod]

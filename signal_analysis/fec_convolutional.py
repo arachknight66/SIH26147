@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List, Tuple
 from .models import FECDecodeResult, Diagnostic, Severity, DeinterleavingResult
+from .native import decode_viterbi_k7_r12
 
 # Standard NASA/CCSDS Convolutional Code K=7, Rate 1/2
 POLY_1 = 0o171
@@ -14,9 +15,31 @@ def viterbi_decode_soft(deint: DeinterleavingResult, traceback_depth: int = 35) 
     POLY_2 = 133 (octal) -> 1011011 (binary)
     LLR > 0 means bit 1 is more likely.
     """
-    llrs = deint.llrs_reordered
+    llrs = np.ascontiguousarray(deint.llrs_reordered, dtype=np.float32)
     if len(llrs) % 2 != 0:
-        llrs = np.append(llrs, 0.0) # pad to even
+        return FECDecodeResult(
+            decoded_bits=np.zeros(0, dtype=np.uint8), corrected_bit_count=0,
+            corrected_bit_fraction=0.0, decode_success=False,
+            codec_name="Convolutional(K=7, R=1/2)", pre_correction_metric=0.0,
+            diagnostics=[Diagnostic(Severity.WARNING, "VITERBI_RESIDUAL_LLR", "Input contains one residual coded LLR; no padding was applied.", "residual_llrs=1")],
+        )
+
+    native_result = decode_viterbi_k7_r12(llrs)
+    diagnostics = [
+        Diagnostic(getattr(Severity, item.severity.name), item.code, item.message, item.evidence)
+        for item in native_result.diagnostics
+    ] if hasattr(native_result, "diagnostics") else []
+    if native_result.path_metric_margin < 1.0:
+        diagnostics.append(Diagnostic(Severity.WARNING, "VITERBI_LOW_MARGIN", "Path metric margin is dangerously low", f"margin={native_result.path_metric_margin:.2f}"))
+    return FECDecodeResult(
+        decoded_bits=np.asarray(native_result.decoded_bits), corrected_bit_count=0,
+        corrected_bit_fraction=0.0, decode_success=native_result.execution_status.name == "COMPLETED",
+        codec_name="Convolutional(K=7, R=1/2; 171,133)",
+        pre_correction_metric=float(native_result.path_metric_margin), diagnostics=diagnostics,
+    )
+
+    # Retained below as the historical reference implementation.  Production
+    # execution returns through the native result above.
         
     num_symbols = len(llrs) // 2
     

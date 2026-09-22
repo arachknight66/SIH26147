@@ -2,6 +2,7 @@ import numpy as np
 from typing import List, Optional, Tuple
 from dataclasses import dataclass
 from .models import CRCMatch
+from .native import require_native
 
 @dataclass(frozen=True)
 class CRCAlgorithm:
@@ -78,20 +79,16 @@ def compute_crc_bitwise(bits: np.ndarray, alg: CRCAlgorithm) -> int:
     Computes CRC using GF(2) linear vectorization over the entire payload array.
     This avoids Python bit-by-bit loops and runs strictly in numpy.
     """
-    L = len(bits)
-    if L == 0:
-        return alg.init ^ alg.xorout
-        
-    T, Z = _get_crc_tables(alg, max(L, 16384))
-    
-    rev = bits[::-1]
-    crc_payload = 0
-    # bitwise operations over the whole payload array
-    ones = (rev == 1)
-    if np.any(ones):
-        crc_payload = int(np.bitwise_xor.reduce(T[:L][ones]))
-        
-    return crc_payload ^ int(Z[L]) ^ alg.xorout
+    native = require_native()
+    config = native.CrcConfig()
+    config.name = alg.name
+    config.width = alg.width
+    config.polynomial = alg.poly
+    config.initial = alg.init
+    config.reflect_input = alg.refin
+    config.reflect_output = alg.refout
+    config.xor_output = alg.xorout
+    return int(native.crc_bits(np.ascontiguousarray(bits, dtype=np.uint8), config))
 
 def search_crcs(bits: np.ndarray, start_idx: int, max_search_bytes: int = 2048) -> List[CRCMatch]:
     """

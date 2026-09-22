@@ -67,7 +67,12 @@ def assemble_frames(bits: np.ndarray, header_matches: List[HeaderMatch], max_hea
         if fs.header_match.periodicity_consistent:
             score += 0.3
         if fs.crc_candidate and fs.crc_candidate.verified:
-            score += 0.5
+            # A single CRC-8 collision is common across a broad payload sweep.
+            # It cannot outrank repeated header evidence on its own.
+            if fs.header_match.periodicity_consistent:
+                score += 0.5
+            elif fs.crc_candidate.polynomial_name != "CRC-8":
+                score += 0.15
         return score
         
     structures.sort(key=score_frame, reverse=True)

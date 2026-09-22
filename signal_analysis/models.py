@@ -75,6 +75,15 @@ class CandidateParameters:
     samples_per_symbol: Optional[float]
     center_frequency_hz: Optional[float]
     bandwidth_hz: Optional[float]
+    bandwidth: Optional[float] = None
+    bandwidth_unit: Optional[str] = None
+    bandwidth_uncertainty: Optional[float] = None
+    carrier_offset: Optional[float] = None
+    carrier_offset_unit: Optional[str] = None
+    carrier_offset_uncertainty: Optional[float] = None
+    snr_db: Optional[float] = None
+    snr_uncertainty_db: Optional[float] = None
+    parameter_validity: Dict[str, str] = field(default_factory=dict)
 
 @dataclass(frozen=True)
 class ModulationHypothesis:
@@ -97,6 +106,11 @@ class SynchronizationResult:
     lock_quality_metric: float
     evm_percent: float
     diagnostics: List[Diagnostic]
+    acquisition_status: str = "UNLOCKED"
+    mapping_status: str = "UNVERIFIED"
+    unresolved_phase_rotations: List[float] = field(default_factory=list)
+    unresolved_carrier_offsets: List[float] = field(default_factory=list)
+    timing_offset_samples: Optional[float] = None
 
 @dataclass(frozen=True)
 class DemodulationResult:
@@ -107,6 +121,8 @@ class DemodulationResult:
     sync_result: SynchronizationResult
     source_hypothesis_label: str
     hypothesis_confirmed: bool
+    mapping_verified: bool = False
+    sample_offsets: np.ndarray = field(default_factory=lambda: np.zeros(0, dtype=np.float64))
 
 
 class DeinterleaverFamily(Enum):
@@ -198,3 +214,4 @@ class PipelineResult:
     framing_status: PipelineStageStatus
     frame_structure: Optional[FrameStructure]
     diagnostics: List[Diagnostic] = field(default_factory=list)
+    parameter_analysis: Optional[Any] = None

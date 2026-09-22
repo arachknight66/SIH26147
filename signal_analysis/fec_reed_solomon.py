@@ -1,6 +1,7 @@
 import numpy as np
 from typing import List, Tuple, Optional
 from .models import FECDecodeResult, Diagnostic, Severity, DeinterleavingResult
+from .native import decode_reed_solomon as native_decode_reed_solomon, require_native
 
 class GF2m:
     def __init__(self, m: int = 8, prim_poly: int = 0x11D):
@@ -366,44 +367,29 @@ class ReedSolomon:
         return corrected[:self.k], v, True, diagnostics
 
 def decode_reed_solomon(deint: DeinterleavingResult, n: int = 255, k: int = 223) -> FECDecodeResult:
-    """Wrapper to handle bitstream to GF(256) bytes."""
-    bits = deint.bits
-    if len(bits) % 8 != 0:
-        # Pad to bytes
-        bits = np.pad(bits, (0, 8 - (len(bits) % 8)))
-        
-    bytes_arr = np.packbits(bits)
-    
-    rs = ReedSolomon(n, k)
-    
-    # Process block by block
-    total_corrected = 0
-    decoded_bytes = []
-    success = True
-    all_diags = []
-    
-    for i in range(0, len(bytes_arr), n):
-        block = bytes_arr[i:i+n].tolist()
-        if len(block) < n:
-            block += [0] * (n - len(block))
-            
-        s = sum(rs.calc_syndromes(block))
-        
-        dec, count, scc, diag = rs.decode(block)
-        decoded_bytes.extend(dec)
-        total_corrected += count
-        all_diags.extend(diag)
-        if not scc:
-            success = False
-            
-    out_bits = np.unpackbits(np.array(decoded_bytes, dtype=np.uint8))
-    
+    """Decode complete RS codewords natively; residual bits are never padded."""
+    bits = np.ascontiguousarray(deint.bits, dtype=np.uint8)
+    if bits.size % 8:
+        return FECDecodeResult(
+            decoded_bits=np.zeros(0, dtype=np.uint8), corrected_bit_count=0,
+            corrected_bit_fraction=0.0, decode_success=False, codec_name=f"RS({n},{k})",
+            pre_correction_metric=0.0,
+            diagnostics=[Diagnostic(Severity.WARNING, "RS_RESIDUAL_BITS", "Input is not byte aligned; no padding was applied.", f"residual_bits={bits.size % 8}")],
+        )
+    native = require_native()
+    config = native.ReedSolomonConfig()
+    config.n = int(n)
+    config.k = int(k)
+    native_result = native_decode_reed_solomon(np.packbits(bits), config=config)
+    diagnostics = [
+        Diagnostic(getattr(Severity, item.severity.name), item.code, item.message, item.evidence)
+        for item in native_result.diagnostics
+    ]
+    decoded_bytes = np.asarray(native_result.decoded_bytes, dtype=np.uint8)
     return FECDecodeResult(
-        decoded_bits=out_bits,
-        corrected_bit_count=total_corrected * 8, # Approx bits
-        corrected_bit_fraction=(total_corrected * 8) / max(len(bits), 1),
-        decode_success=success,
-        codec_name=f"RS({n},{k})",
-        pre_correction_metric=float(s), # last syndrome weight approx
-        diagnostics=all_diags
+        decoded_bits=np.unpackbits(decoded_bytes),
+        corrected_bit_count=int(native_result.corrected_symbols) * 8,
+        corrected_bit_fraction=(int(native_result.corrected_symbols) * 8) / max(bits.size, 1),
+        decode_success=bool(native_result.success), codec_name=f"RS({n},{k})",
+        pre_correction_metric=float(native_result.syndrome_weight), diagnostics=diagnostics,
     )

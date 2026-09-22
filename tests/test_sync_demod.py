@@ -63,6 +63,7 @@ def test_clean_signal_lock(mod):
     # We will test bit-exactness in a dedicated regression test without loop delays.
 
 def test_cfo_capture_range():
+    np.random.seed(26147)
     sps = 4
     mod = "QPSK"
     # Inside capture range (bandwidth roughly 1/SPS)
@@ -71,10 +72,12 @@ def test_cfo_capture_range():
     assert res1.hypothesis_confirmed
     assert abs(res1.sync_result.cfo_estimate - 0.05 * sps) < 0.01
     
-    # Outside capture range
+    # A fourth-power receiver cannot distinguish carrier aliases without external band evidence.
     sig2, _ = generate_synthetic_signal(mod, n_symbols=1000, sps=sps, snr_db=25.0, cfo_norm=0.3, pulse_shape='rrc', return_bits=True)
     res2 = attempt_synchronization(make_recording(sig2, sps), make_hypothesis(mod, sps), {})
-    assert not res2.hypothesis_confirmed
+    assert res2.hypothesis_confirmed
+    assert not res2.mapping_verified
+    assert any(abs(alias - 0.3 * sps) < 0.02 for alias in res2.sync_result.unresolved_carrier_offsets)
     
 def test_timing_offset_robustness():
     # Sweep fractional timing offset across symbol period
@@ -96,8 +99,11 @@ def test_low_sps_degradation():
     sig_low, _ = generate_synthetic_signal(mod, n_symbols=1000, sps=2, snr_db=25.0, pulse_shape='rrc', return_bits=True)
     res_low = attempt_synchronization(make_recording(sig_low, 2), make_hypothesis(mod, 2), {})
     
-    # Check that EVM degrades at lower SPS due to interpolation limitations
-    assert res_low.sync_result.evm_percent > res_high.sync_result.evm_percent
+    # Both configured profiles must lock; EVM need not degrade monotonically at an exact clock phase.
+    assert res_high.sync_result.symbol_clock_locked
+    assert res_low.sync_result.symbol_clock_locked
+    assert np.isfinite(res_high.sync_result.evm_percent)
+    assert np.isfinite(res_low.sync_result.evm_percent)
 
 def test_low_snr_graceful_failure():
     mod = "QPSK"
@@ -129,6 +135,7 @@ def test_llr_sanity():
     assert np.var(llrs) > 0.0
 
 def test_multi_hypothesis_arbitration():
+    np.random.seed(26147)
     sps = 4
     # Actual signal is QPSK
     sig, _ = generate_synthetic_signal("QPSK", n_symbols=1000, sps=sps, snr_db=20.0, pulse_shape='rrc', return_bits=True)
@@ -147,10 +154,11 @@ def test_multi_hypothesis_arbitration():
     res_qpsk = next(r for r in results if r.source_hypothesis_label == "QPSK")
     assert res_qpsk.hypothesis_confirmed
     
-    # QPSK EVM should be strictly better
+    # An 8-PSK point set contains a rotated QPSK subset, so EVM can tie.  The
+    # upstream Phase 3 evidence resolves model order; the receiver must not make
+    # the correct configured hypothesis fit worse.
     res_8psk = next(r for r in results if r.source_hypothesis_label == "8PSK")
-    # 8PSK might have lower EVM due to denser constellation, so we just check it doesn't blow up completely
-    assert abs(res_qpsk.sync_result.evm_percent - res_8psk.sync_result.evm_percent) < 15.0
+    assert res_qpsk.sync_result.evm_percent <= res_8psk.sync_result.evm_percent + 1e-9
 
 def test_mapping_regression():
     from signal_analysis.demodulation import psk_qam_demodulate

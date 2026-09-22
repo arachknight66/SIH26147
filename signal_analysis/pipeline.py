@@ -10,9 +10,7 @@ from .models import (
     FECDecodeResult,
     FrameStructure
 )
-from .hypotheses import evaluate_and_rank_hypotheses
-from .features import extract_all_features
-from .classifier import compute_classical_scores
+from .analysis import analyze_modulation, analysis_summary
 from .demodulation import attempt_synchronization_multi_hypothesis
 from .fec_concatenated import decode_concatenated
 from .correlation import correlate_sync_words, BUILTIN_SYNC_WORDS
@@ -56,13 +54,13 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     else:
         rec_1d = recording
         
-    fv = extract_all_features(rec_1d)
-    c_scores = compute_classical_scores(fv)
-    snr_est = 20.0
-    
-    hyps, selected, is_ambig, is_unk = evaluate_and_rank_hypotheses(fv, c_scores, snr_est, {}, rec_1d)
+    hyps, selected, is_ambig, is_unk, parameter_analysis = analyze_modulation(rec_1d, config)
 
-    res = PipelineResult(**{**res.__dict__, 'all_hypotheses': hyps})
+    res = PipelineResult(**{
+        **res.__dict__,
+        'all_hypotheses': hyps,
+        'parameter_analysis': analysis_summary(parameter_analysis),
+    })
     
     if not hyps:
         res = PipelineResult(**{**res.__dict__, 'hypothesis_status': PipelineStageStatus.FAILED})
@@ -86,7 +84,12 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     
     # --- Stage 4: Deinterleave & FEC ---
     vit_res, rs_res, deint_res = decode_concatenated(demod, config)
-    res = PipelineResult(**{**res.__dict__, 'fec_status': PipelineStageStatus.COMPLETED, 'deint_result': deint_res, 'fec_result': rs_res})
+    res = PipelineResult(**{
+        **res.__dict__,
+        'fec_status': PipelineStageStatus.COMPLETED if rs_res.decode_success else PipelineStageStatus.FAILED,
+        'deint_result': deint_res,
+        'fec_result': rs_res,
+    })
     
     # Check FEC boundary exception: "If FECDecodeResult.decode_success is False, correlation may still be attempted"
     final_bits = rs_res.decoded_bits

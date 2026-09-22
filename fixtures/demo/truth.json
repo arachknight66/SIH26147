@@ -1,0 +1,12 @@
+{
+  "clean_qpsk": {"generation":"deterministic synthetic QPSK", "evaluation_only":true},
+  "structured_bpsk": {"generation":"legacy structured BPSK", "validated_concatenated":false, "evaluation_only":true},
+  "low_snr_qpsk": {"generation":"deterministic noisy QPSK", "evaluation_only":true},
+  "ofdm": {"generation":"deterministic synthetic OFDM", "expected_support":"unsupported", "evaluation_only":true},
+  "real_valued": {"generation":"deterministic real-valued BPSK-derived audio", "evaluation_only":true},
+  "clean_16qam": {"generation":"deterministic synthetic 16-QAM", "evaluation_only":true},
+  "low_snr_16qam": {"generation":"deterministic noisy 16-QAM", "evaluation_only":true},
+  "structured_16qam": {"generation":"legacy structured 16-QAM", "validated_concatenated":false, "evaluation_only":true},
+  "64qam_limit": {"generation":"deterministic synthetic 64-QAM", "evaluation_only":true},
+  "16qam_cfo": {"generation":"deterministic CFO-impaired 16-QAM", "evaluation_only":true}
+}

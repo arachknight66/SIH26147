@@ -1,0 +1,48 @@
+name: Native core
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+        python-version: ["3.12"]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Build native C++ tests
+        run: >-
+          cmake -S . -B build/native-tests
+          -DSIH_BUILD_PYTHON=OFF
+          -DSIH_BUILD_TESTS=ON
+      - name: Compile native C++ tests
+        run: cmake --build build/native-tests --config Release
+      - name: Run native C++ tests
+        run: ctest --test-dir build/native-tests -C Release --output-on-failure
+      - name: Build and install Python package
+        run: uv sync --extra test
+      - name: Run native binding and Phase 2 tests
+        run: uv run pytest tests/test_native_bindings.py tests/test_phase2_native.py tests/test_measurements.py tests/test_loaders.py
+      - name: Verify GUI imports
+        run: uv run --extra gui python -c "from signal_analysis.gui import HAS_QT; assert HAS_QT"
+
+  sanitizer-and-release-gates:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+        with:
+          python-version: "3.12"
+      - name: Build sanitizer native tests
+        run: cmake --preset native-sanitized && cmake --build --preset native-sanitized
+      - name: Run sanitizer native tests
+        run: ctest --preset native-sanitized
+      - name: Run release integration checks
+        run: uv run --extra test --extra gui python tools/run_validation.py --quick --skip-native
