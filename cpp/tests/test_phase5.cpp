@@ -6,6 +6,30 @@
 
 namespace {
 bool require(const bool condition, const char* message) { if (!condition) std::cerr << message << '\n'; return condition; }
+
+// Test-only GF(256) evaluator.  It evaluates codewords emitted by the actual
+// native encoder; no production generator implementation is duplicated here.
+std::uint8_t gf_multiply(const std::uint8_t left, const std::uint8_t right) {
+    std::uint8_t a = left, b = right, product = 0U;
+    while (b != 0U) { if ((b & 1U) != 0U) product ^= a; const bool high = (a & 0x80U) != 0U; a <<= 1U; if (high) a ^= 0x1dU; b >>= 1U; }
+    return product;
+}
+std::uint8_t alpha_power(std::size_t exponent) { std::uint8_t value = 1U; while (exponent-- != 0U) value = gf_multiply(value, 2U); return value; }
+std::uint8_t evaluate(const std::vector<std::uint8_t>& polynomial, const std::uint8_t x) { std::uint8_t value = 0U; for (const auto coefficient : polynomial) value = gf_multiply(value, x) ^ coefficient; return value; }
+bool roots_hold_for_native_encoder(const sih::bitstream::ReedSolomonConfig& config) {
+    const auto parity = config.n - config.k;
+    // Systematic basis messages span every emitted codeword, so this checks the
+    // actual native generator's BCH roots, not an independently recreated g(x).
+    bool right_adjacent_nonroot = false, left_adjacent_nonroot = false;
+    for (std::size_t basis = 0; basis < config.k; ++basis) {
+        std::vector<std::uint8_t> message(config.k, 0U); message[basis] = 1U;
+        const auto word = sih::bitstream::encode_reed_solomon(message, config);
+        for (std::size_t root = 0; root < parity; ++root) if (evaluate(word, alpha_power(root)) != 0U) return false;
+        right_adjacent_nonroot |= evaluate(word, alpha_power(parity)) != 0U;
+        left_adjacent_nonroot |= evaluate(word, alpha_power(254U)) != 0U;
+    }
+    return right_adjacent_nonroot && left_adjacent_nonroot;
+}
 }
 
 int main() {
@@ -34,6 +58,10 @@ int main() {
     word[0] ^= 0x77U;
     const auto rejected = decode_reed_solomon(word, rs);
     passed &= require(!rejected.success, "RS decoder accepted a codeword beyond correction capacity");
+
+    for (const ReedSolomonConfig profile : {ReedSolomonConfig{255U, 223U}, ReedSolomonConfig{255U, 239U}, ReedSolomonConfig{15U, 11U}}) {
+        passed &= require(roots_hold_for_native_encoder(profile), "native RS encoder codeword span did not vanish at all configured consecutive BCH roots");
+    }
 
     LdpcMatrix matrix; matrix.variable_count = 3U; matrix.checks = {{0U, 1U}, {1U, 2U}};
     const std::vector<float> ldpc_llrs{-4.0F, -3.0F, -2.0F};

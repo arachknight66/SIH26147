@@ -1,6 +1,9 @@
 .venv/
 build/
 data/
+corpus/reports/
+corpus/evaluation_invocations.jsonl
+corpus/proposed_thresholds.json
 dist/
 wheelhouse/
 *.egg-info/

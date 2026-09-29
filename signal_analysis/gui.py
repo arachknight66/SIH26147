@@ -1,5 +1,6 @@
 import sys
 import numpy as np
+from dataclasses import fields, is_dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -21,6 +22,23 @@ except ImportError:
         import pyqtgraph as pg
     except ImportError:
         HAS_QT = False
+
+
+class GuiPipelineContractError(RuntimeError):
+    """A render-time dataclass contract drift, reported before widget mutation."""
+
+
+def _require_fields(value, *names: str) -> None:
+    if value is None:
+        return
+    if not is_dataclass(value):
+        raise GuiPipelineContractError(f"GUI_PIPELINE_CONTRACT: expected dataclass, got {type(value).__name__}")
+    available = {item.name for item in fields(value)}
+    missing = set(names) - available
+    if missing:
+        raise GuiPipelineContractError(
+            f"GUI_PIPELINE_CONTRACT: {type(value).__name__} missing field(s): {', '.join(sorted(missing))}"
+        )
 
 from .models import (SignalRecording, SourceFormat, MetadataValue, 
                      MetadataStatus, PipelineResult, PipelineStageStatus, FeatureValidity)
@@ -180,6 +198,24 @@ if HAS_QT:
         def update_metadata(self, recording: SignalRecording, pipe_res: PipelineResult = None):
             if pipe_res is None:
                 pipe_res = run_full_pipeline(recording)
+            # Validate every structural contract before mutating any sidebar widget.
+            _require_fields(recording, "source_format", "semantic_type", "samples", "sample_rate_hz", "center_frequency_hz", "diagnostics")
+            _require_fields(pipe_res, "diagnostics", "parameter_analysis", "all_hypotheses", "hypothesis_status", "sync_status", "demod_result", "fec_status", "deint_result", "fec_result", "framing_status", "frame_structure")
+            for hypothesis in pipe_res.all_hypotheses:
+                _require_fields(hypothesis, "label", "status", "score", "quality_tier")
+            if pipe_res.demod_result is not None:
+                _require_fields(pipe_res.demod_result, "sync_result", "hypothesis_confirmed", "hard_bits")
+                _require_fields(pipe_res.demod_result.sync_result, "acquisition_status", "mapping_status", "cfo_estimate", "cfo_unit", "lock_quality_metric", "evm_percent", "unresolved_phase_rotations")
+            if pipe_res.deint_result is not None:
+                _require_fields(pipe_res.deint_result, "hypothesis")
+                _require_fields(pipe_res.deint_result.hypothesis, "family")
+            if pipe_res.fec_result is not None:
+                _require_fields(pipe_res.fec_result, "codec_name", "corrected_bit_count", "corrected_bit_fraction", "decode_success", "decoded_bits")
+            if pipe_res.frame_structure is not None:
+                _require_fields(pipe_res.frame_structure, "header_match", "header_length_bits", "payload_start_bit", "payload_length_bits", "crc_candidate")
+                _require_fields(pipe_res.frame_structure.header_match, "pattern")
+                if pipe_res.frame_structure.crc_candidate is not None:
+                    _require_fields(pipe_res.frame_structure.crc_candidate, "polynomial_name")
             
             # Check for NON_COMPLEX_PIPELINE
             has_non_complex = any(d.code == "NON_COMPLEX_PIPELINE" for d in pipe_res.diagnostics)
@@ -500,7 +536,12 @@ if HAS_QT:
                 self.job_status.setText("Analysis: incomplete")
                 return
             self.update_plots(outcome.recording)
-            self.sidebar.update_metadata(outcome.recording, outcome.pipeline_result)
+            try:
+                self.sidebar.update_metadata(outcome.recording, outcome.pipeline_result)
+            except GuiPipelineContractError as exc:
+                self.job_status.setText("Analysis: GUI contract mismatch")
+                QMessageBox.critical(self, "GUI Pipeline Contract", str(exc))
+                return
             self.job_progress.setValue(100)
             self.job_status.setText("Analysis: completed")
 

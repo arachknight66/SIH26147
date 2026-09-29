@@ -35,8 +35,12 @@ To maintain strict epistemic integrity, this codebase explicitly refuses to sile
 
 ### Native estimation and receiver limitations
 
-1. Phase 3 family classification and rate/CFO calibration currently has deterministic synthetic held-out coverage, not a representative RF capture corpus. Exact 16/64/256-QAM order ranking can remain ambiguous even when the QAM family is correct.
+1. Phase 3 family classification and rate/CFO calibration has deterministic synthetic coverage plus a corpus manifest, hash-checked ingestion, T1 impairment instrument, and split/firewall evaluator. The committed T2 over-the-air corpus is **EMPTY (0 captures)**, so no representative accuracy or PRD gate is claimed. Exact 16/64/256-QAM order ranking can remain ambiguous even when the QAM family is correct.
 2. The PSD-floor SNR estimate is marked unreliable when the recording does not expose a separable noise-only band. Wideband FSK and multicarrier captures are particularly difficult.
 3. `ReceiverSession` preserves arbitrary chunk equivalence but buffers a bounded acquisition window and emits on `flush`; continuous incremental tracking is not implemented yet.
 4. DBPSK/DQPSK, OQPSK, and MSK paths are present. GMSK/GFSK, generic CPM, pi/4-DQPSK, adaptive multipath equalization, and finite-memory CPM sequence detection remain unsupported.
 5. Carrier acquisition explicitly reports rotational and nonlinear-frequency aliases. A lock does not verify absolute bit mapping unless a carrier/phase reference or later frame evidence resolves it.
+
+### Reed--Solomon bounded-distance invariant
+
+For `t=(n-k)/2`, RS minimum distance is `d=2t+1`, so radius-`t` decoding is unique: those Hamming balls are disjoint. The Python re-encode check is redundant after a correct zero-syndrome result and protects only against internal decoder inconsistency, not a reachable decode-time ambiguity; no native gap exists. Native and Python regressions instead protect the real dependency of this argument: the generator polynomial's consecutive BCH-root structure.

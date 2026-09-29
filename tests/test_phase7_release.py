@@ -35,7 +35,7 @@ def test_native_benchmark_report_is_deterministic_in_shape():
 
 def test_negative_noise_windows_do_not_create_confirmed_frames():
     """Small seeded smoke corpus: unknown/noise inputs must not claim a confirmed frame."""
-    from signal_analysis.models import PipelineStageStatus
+    from tools.negative.claims import evaluate_claims
     from signal_analysis.pipeline import run_full_pipeline
     from signal_analysis.models import (
         MetadataStatus,
@@ -60,4 +60,4 @@ def test_negative_noise_windows_do_not_create_confirmed_frames():
             diagnostics=[],
         )
         pipeline = run_full_pipeline(recording)
-        assert pipeline.framing_status is not PipelineStageStatus.COMPLETED or pipeline.frame_structure is None
+        assert not evaluate_claims(pipeline).levels["L5_confirmed_frame"]

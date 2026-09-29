@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIH26147 corpus evaluation-only truth",
+  "type": "object",
+  "required": ["schema_version", "captures"],
+  "properties": {"schema_version": {"const": 1}, "captures": {"type": "object", "additionalProperties": {"$ref": "#/$defs/truth"}}},
+  "$defs": {"value": {"type": "object", "required": ["value", "unit", "status"], "properties": {"value": {}, "unit": {"type": "string"}, "status": {"enum": ["KNOWN", "MEASURED_INDEPENDENTLY", "UNKNOWN"]}, "method": {"type": "string"}}}, "truth": {"type": "object", "required": ["family", "exact_label", "symbol_rate", "snr", "supported_by_engine"], "properties": {"family": {"enum": ["PSK", "QAM", "FSK", "UNSUPPORTED", "UNKNOWN"]}, "exact_label": {"type": "string"}, "symbol_rate": {"$ref": "#/$defs/value"}, "snr": {"$ref": "#/$defs/value"}, "carrier_offset": {"$ref": "#/$defs/value"}, "fec_interleaver_profile": {}, "supported_by_engine": {"type": "boolean"}, "transmitted_bits_ref": {"type": "string"}}}}
+}

@@ -57,6 +57,22 @@ def test_rs_bound_failure():
     # Must fail explicitly, not silently fabricate a codeword
     assert any("EXCEEDED" in d.code or "FAILED" in d.code or "MISMATCH" in d.code or "FAIL" in d.code for d in diags)
 
+
+@pytest.mark.parametrize("n,k", [(255, 223), (255, 239), (15, 11)])
+def test_rs_generator_has_exact_consecutive_bch_roots(n, k):
+    """Exact O(n-k) generator check: g(alpha^0..alpha^(n-k-1)) is zero.
+
+    The immediately adjacent field powers are non-roots, proving the configured
+    generator has exactly this consecutive root interval (not merely a subset).
+    """
+    rs = ReedSolomon(n, k)
+    parity = n - k
+    assert len(rs.g) == parity + 1
+    for exponent in range(parity):
+        assert rs.gf.poly_eval(rs.g, rs.gf.power(2, exponent)) == 0
+    assert rs.gf.poly_eval(rs.g, rs.gf.power(2, parity)) != 0
+    assert rs.gf.poly_eval(rs.g, rs.gf.power(2, -1)) != 0
+
 def test_rs_cross_check_divergence():
     # To test cross-check, we could mock one of the locators or just rely on the existing 
     # cross-check catching divergent implementations. We'll instantiate a corrupted RS class

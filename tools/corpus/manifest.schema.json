@@ -1,0 +1,14 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "SIH26147 capture corpus manifest",
+  "type": "object",
+  "required": ["schema_version", "split_salt", "captures"],
+  "properties": {
+    "schema_version": {"const": 1},
+    "split_salt": {"type": "string", "minLength": 16},
+    "captures": {"type": "array", "items": {"$ref": "#/$defs/capture"}}
+  },
+  "$defs": {
+    "field": {"type": "object", "required": ["value", "status"], "properties": {"value": {}, "status": {"enum": ["KNOWN", "ASSUMED", "MISSING"]}}},
+    "capture": {"type": "object", "required": ["capture_id", "path", "sha256", "tier", "source_description", "license", "acquisition", "center_frequency_hz", "sample_rate_hz", "format", "import_config", "duration_seconds", "split", "split_assignment", "truth_ref", "notes"], "properties": {"capture_id": {"type": "string", "pattern": "^[A-Za-z0-9._-]+$"}, "path": {"type": "string"}, "sha256": {"type": "string", "pattern": "^[a-f0-9]{64}$"}, "tier": {"enum": ["T0", "T1", "T2"]}, "source_description": {"type": "string", "minLength": 1}, "license": {"type": "object", "required": ["redistribution_status"], "properties": {"redistribution_status": {"enum": ["PERMITTED", "RESTRICTED", "UNKNOWN"]}}}, "acquisition": {"type": "object"}, "center_frequency_hz": {"$ref": "#/$defs/field"}, "sample_rate_hz": {"$ref": "#/$defs/field"}, "format": {"enum": ["RAW_IQ", "WAV", "SIGMF"]}, "import_config": {"type": "object"}, "duration_seconds": {"type": "number", "minimum": 0}, "split": {"enum": ["calibration", "heldout"]}, "split_assignment": {"type": "object", "required": ["algorithm", "salt_id", "digest", "rule"], "properties": {"algorithm": {"const": "sha256"}, "rule": {"const": "first_hex_nibble_lt_8_calibration"}}}, "truth_ref": {"type": "string", "minLength": 1}, "impairment_recipe": {"type": "object"}, "notes": {"type": "string"}}}}
+}

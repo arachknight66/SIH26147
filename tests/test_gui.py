@@ -2,8 +2,9 @@ import pytest
 import numpy as np
 import time
 from unittest.mock import patch, MagicMock
-from signal_analysis.gui import MainWindow, HAS_QT, _get_status_color, format_stage_status
-from signal_analysis.models import PipelineStageStatus
+from signal_analysis.gui import MainWindow, MetadataSidebar, HAS_QT, _get_status_color, format_stage_status, GuiPipelineContractError
+from signal_analysis.models import (PipelineStageStatus, SignalRecording, SourceFormat,
+    MetadataValue, MetadataStatus, PipelineResult)
 
 
 def _wait_for_analysis(app, window, timeout_s=5.0):
@@ -103,3 +104,51 @@ def test_open_file_dialog_wiring_complex_iq(tmp_path):
                     assert recording.semantic_type == "complex_iq"
                     # Assert no diagnostic contains the heuristic text
                     assert not any("heuristic" in d.message.lower() for d in recording.diagnostics)
+
+
+def _minimal_pipeline_tree():
+    recording = SignalRecording(np.zeros(8, np.complex64), SourceFormat.RAW_IQ, "complex64", "complex_iq",
+        MetadataValue(1.0, "test", MetadataStatus.KNOWN), MetadataValue(None, "test", MetadataStatus.MISSING), {}, [])
+    return recording, PipelineResult(recording, PipelineStageStatus.NOT_ATTEMPTED, None, [],
+        PipelineStageStatus.NOT_ATTEMPTED, None, PipelineStageStatus.NOT_ATTEMPTED, None, None,
+        PipelineStageStatus.NOT_ATTEMPTED, None)
+
+
+@pytest.mark.skipif(not HAS_QT, reason="Qt not available")
+def test_sidebar_contract_guard_accepts_real_dataclasses():
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    recording, pipeline = _minimal_pipeline_tree()
+    sidebar = MetadataSidebar()
+    sidebar.update_metadata(recording, pipeline)
+    assert "RAW_IQ" in sidebar.meta_text.text()
+
+
+@pytest.mark.skipif(not HAS_QT, reason="Qt not available")
+def test_sidebar_contract_guard_is_atomic_before_widget_mutation():
+    from dataclasses import dataclass
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    recording, pipeline = _minimal_pipeline_tree(); sidebar = MetadataSidebar(); sidebar.meta_text.setText("old consistent state")
+    @dataclass(frozen=True)
+    class DriftedPipeline: diagnostics: list
+    with pytest.raises(GuiPipelineContractError, match="GUI_PIPELINE_CONTRACT.*DriftedPipeline"):
+        sidebar.update_metadata(recording, DriftedPipeline([]))
+    assert sidebar.meta_text.text() == "old consistent state"
+
+
+@pytest.mark.skipif(not HAS_QT, reason="Qt not available")
+def test_async_completion_surfaces_contract_error_distinctly():
+    from signal_analysis.jobs.analysis_job import JobSnapshot, JobState
+    from signal_analysis.workflow import ProductionAnalysisResult, WorkflowStatus, AnalysisRequest
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([]); recording, pipeline = _minimal_pipeline_tree(); window = MainWindow()
+    outcome = ProductionAnalysisResult(AnalysisRequest(__import__('pathlib').Path("x.iq")), recording, pipeline, WorkflowStatus.COMPLETED, 3, 3)
+    class DoneJob:
+        def snapshot(self): return JobSnapshot(JobState.COMPLETED, 3, 3, 1.0, None)
+        def result(self, timeout=0): return outcome
+    window._active_job = DoneJob()
+    with patch.object(window, "update_plots"), patch.object(window.sidebar, "update_metadata", side_effect=GuiPipelineContractError("GUI_PIPELINE_CONTRACT: PipelineResult missing field(s): fec_result")), patch("signal_analysis.gui.QMessageBox.critical") as critical:
+        window._poll_analysis_job()
+    assert "contract mismatch" in window.job_status.text().lower()
+    assert "GUI_PIPELINE_CONTRACT" in critical.call_args.args[2]
