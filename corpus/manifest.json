@@ -1,5 +1,49 @@
 {
   "schema_version": 1,
   "split_salt": "sih26147-corpus-split-v1-frozen",
-  "captures": []
+  "captures": [
+    {
+      "capture_id": "zenodo-13371136-intelsat37e-gr4-packet-modem",
+      "path": "data/zenodo-13371136-intelsat37e/gr4-packet-modem-intelsat37e-test.sigmf-meta",
+      "sha256": "5127e2a0f6e41ef9553049d492860a3dbbb44eb790141ec83536d7570c8c323c",
+      "tier": "T2",
+      "source_description": "Real over-the-air IQ downlink recording of a gr4-packet-modem test through the Intelsat 37e C-band transponder, published by Daniel Estévez on Zenodo record 13371136 (DOI 10.5281/zenodo.13371136).",
+      "license": {
+        "redistribution_status": "PERMITTED",
+        "license_id": "CC-BY-4.0",
+        "license_url": "https://creativecommons.org/licenses/by/4.0/",
+        "source_record": "https://zenodo.org/records/13371136"
+      },
+      "acquisition": {
+        "hardware": "USRP B200mini connected to the L-band IF of a teleport in Usingen (19 m antenna)",
+        "recorder": "GNU Radio 3.10",
+        "source_metadata": "SigMF global metadata; Zenodo record 13371136"
+      },
+      "center_frequency_hz": {
+        "value": 3671055830,
+        "status": "KNOWN"
+      },
+      "sample_rate_hz": {
+        "value": 500,
+        "status": "KNOWN"
+      },
+      "format": "SIGMF",
+      "import_config": {
+        "sigmf_datatype": "cf32_le",
+        "metadata_sidecar_sha256": "5127e2a0f6e41ef9553049d492860a3dbbb44eb790141ec83536d7570c8c323c",
+        "data_sidecar_sha256": "dd15c23fd5d0c1fea1f593b3b5385e081401cfa55e9f2f958b3bfa4549932292",
+        "publisher_data_md5": "a65e7711b5a00b4a17274b5d990494ea"
+      },
+      "duration_seconds": 1193.266,
+      "split": "calibration",
+      "split_assignment": {
+        "algorithm": "sha256",
+        "salt_id": "sih26147-corpus-split-v1-frozen",
+        "digest": "6e451c292ac8c3a0f4209c53e7f439260a63345a97da5faff410319f100de040",
+        "rule": "first_hex_nibble_lt_8_calibration"
+      },
+      "truth_ref": "corpus/truth/truth.json",
+      "notes": "Zenodo publisher checksums verified on 2026-09-29: metadata MD5 39ed325374b8bd7e33626aad7a0db371; data MD5 a65e7711b5a00b4a17274b5d990494ea. The manifest hash is for the SigMF metadata file used by the production loader; the data-sidecar SHA-256 is recorded separately. Real capture provenance alone does not provide independent modulation, symbol-rate, SNR, FEC, or bit truth. It is T2 evidence infrastructure only and is not used to claim a PRD gate pass."
+    }
+  ]
 }

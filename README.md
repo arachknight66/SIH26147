@@ -90,3 +90,30 @@ Raw IQ requires explicit import parameters, for example:
 ```bash
 python -m signal_analysis.cli capture.iq --raw-dtype int16 --raw-iq-order iq --sample-rate-hz 1000000
 ```
+
+Frame confirmation is intentionally profile-driven: exploratory sync matches
+remain hypotheses. To verify a payload CRC, provide a JSON list with the
+expected sync marker, fixed payload size, and CRC. For example:
+
+```json
+[
+  {
+    "header_name": "HDLC_FLAG",
+    "payload_bytes": 64,
+    "crc_name": "CRC-16/CCITT-FALSE"
+  }
+]
+```
+
+```bash
+python -m signal_analysis.cli capture.iq --raw-dtype int16 --sample-rate-hz 1000000 --frame-profiles profiles.json
+```
+
+A frame is marked `CONFIRMED` only after multiple distinct fixed-boundary CRC
+observations and a verified receiver bit mapping; otherwise it remains an
+explicit hypothesis.
+
+The GUI offers the same configured verification flow through **Configure frame
+profile…**. Raw files are accepted as `.iq`, `.raw`, or any selected file; the
+import dialog requires the acquisition dtype, I/Q ordering, endianness, and
+sample rate rather than guessing them from bytes.

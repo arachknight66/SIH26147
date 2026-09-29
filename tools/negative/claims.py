@@ -20,6 +20,5 @@ def evaluate_claims(result: PipelineResult, unknown_threshold: float = UNKNOWN_T
     l3=bool(fec and fec.decode_success and not uncoded)
     frame=result.frame_structure
     l4=bool(result.framing_status is PipelineStageStatus.COMPLETED and frame and frame.status is not HypothesisStatus.UNKNOWN)
-    crc=frame.crc_candidate if frame else None
-    l5=bool(l4 and frame.header_match.periodicity_consistent and crc and crc.verified and crc.polynomial_name != "CRC-8")
+    l5=bool(frame and frame.status is HypothesisStatus.CONFIRMED)
     return ClaimResult(dict(zip(LEVELS,(l1,l2,l3,l4,l5))),uncoded, "held-out corroboration unavailable in current pipeline")

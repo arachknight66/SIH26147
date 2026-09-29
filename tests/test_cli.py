@@ -75,3 +75,24 @@ def test_cli_stereo_mode(tmp_path):
     res = out[str(test_wav)]
     # With stereo_iq, it will NOT have the UNRESOLVED_STEREO diagnostic
     assert not any(d["code"] == "UNRESOLVED_STEREO" for d in res.get("diagnostics", []))
+
+
+def test_cli_rejects_malformed_frame_profile_file(tmp_path):
+    import wave
+
+    test_wav = tmp_path / "test.wav"
+    with wave.open(str(test_wav), "wb") as f:
+        f.setnchannels(1)
+        f.setsampwidth(2)
+        f.setframerate(44100)
+        f.writeframes(np.zeros(100, dtype=np.int16).tobytes())
+    profiles = tmp_path / "profiles.json"
+    profiles.write_text('{"not": "a profile list"}')
+
+    result = subprocess.run([
+        sys.executable, "-m", "signal_analysis.cli", str(test_wav),
+        "--frame-profiles", str(profiles),
+    ], capture_output=True, text=True)
+
+    assert result.returncode == 2
+    assert "JSON list" in result.stderr

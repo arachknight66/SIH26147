@@ -45,6 +45,11 @@ def run_cli():
     parser.add_argument("--sample-rate-hz", type=float, help="Raw IQ sample rate in Hz")
     parser.add_argument("--center-frequency-hz", type=float, default=0.0, help="Raw IQ center frequency in Hz")
     parser.add_argument("--fec-profile", default="UNCODED", help="Explicit FEC profile for the production pipeline")
+    parser.add_argument(
+        "--frame-profiles",
+        type=Path,
+        help="JSON file containing explicit frame profiles for fixed-boundary CRC verification",
+    )
     args = parser.parse_args()
     
     # We defer these imports so we don't accidentally import GUI stuff at module load
@@ -53,6 +58,14 @@ def run_cli():
     from .workflow import AnalysisRequest, run_production_analysis
     
     input_path = Path(args.input)
+    frame_profiles = None
+    if args.frame_profiles is not None:
+        try:
+            frame_profiles = json.loads(args.frame_profiles.read_text(encoding="utf-8"))
+        except (OSError, json.JSONDecodeError) as exc:
+            parser.error(f"cannot read --frame-profiles: {exc}")
+        if not isinstance(frame_profiles, list) or not all(isinstance(item, dict) for item in frame_profiles):
+            parser.error("--frame-profiles must contain a JSON list of profile objects")
     files_to_process = []
     
     if input_path.is_dir():
@@ -82,7 +95,10 @@ def run_cli():
                 path=fpath,
                 wav_stereo_mode=args.wav_stereo_mode,
                 raw_iq_config=raw_config,
-                pipeline_config={"fec_profile": args.fec_profile},
+                pipeline_config={
+                    "fec_profile": args.fec_profile,
+                    **({"frame_profiles": frame_profiles} if frame_profiles is not None else {}),
+                },
                 origin="cli",
             ))
             pipe_res = outcome.pipeline_result

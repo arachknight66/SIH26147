@@ -70,8 +70,10 @@ def evaluate(manifest_path: Path, *, tier: str | None, split: str, config: dict 
             if not allow_missing: raise
             skipped.append({"capture_id": record["capture_id"], "error": str(exc)})
     matrix = Counter((r["truth"]["family"], r["prediction"]["family"]) for r in rows)
-    supported = [r for r in rows if r["truth"]["supported_by_engine"]]
-    negatives = [r for r in rows if not r["truth"]["supported_by_engine"]]
+    # An UNKNOWN family is deliberately not a negative: provenance without
+    # independent waveform truth cannot support either side of a metric.
+    supported = [r for r in rows if r["truth"]["family"] != "UNKNOWN" and r["truth"]["supported_by_engine"]]
+    negatives = [r for r in rows if r["truth"]["family"] == "UNSUPPORTED" and not r["truth"]["supported_by_engine"]]
     correct = sum(r["truth"]["family"] == r["prediction"]["family"] for r in supported)
     exact = sum(r["truth"]["exact_label"] == r["prediction"]["exact_label"] for r in supported)
     high_wrong = sum(r["prediction"]["status"] == "CANDIDATE" and r["prediction"]["score"] >= config.get("high_confidence_threshold", .8) and r["prediction"]["family"] not in {"UNSUPPORTED", "UNKNOWN"} for r in negatives)

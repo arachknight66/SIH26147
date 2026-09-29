@@ -1,22 +1,22 @@
 # Known Limitations and Explicit Non-Goals
 
-To maintain strict epistemic integrity, this codebase explicitly refuses to silently handle scenarios it cannot mathematically prove. The following are architectural non-goals and known limitations of the MVP.
+The following are architectural non-goals and observed limitations of the current implementation. A stage completing, lock being reported, or frame candidate appearing is not proof that the inferred signal family or payload is correct.
 
 ## 1. OFDM and Multicarrier Signals
 **Limitation:** Signals such as DAB, DVB-T, LTE, and Wi-Fi are **unsupported**.
-**Behavior:** Phase 2 includes a cyclostationary plausibility detector that will correctly flag cyclic-prefix periodicity. However, the classifier cannot identify specific subcarrier mappings, and Phase 3 will completely abort rather than attempt to lock a single-carrier PLL to a multicarrier waveform.
+**Behavior:** The legacy feature extractor has a coarse cyclic-prefix plausibility diagnostic, but it is not a reliable hard gate on the production native classifier/receiver. In the frozen v1 synthetic S6 OFDM-like negative stratum, 572/1,250 windows produced L1 modulation claims, 1,017/1,250 L2 receiver claims, 676/1,250 L4 frame claims, and **2/1,250 L5 strict frame claims**. The fixed-suite zero-confirmation PRD gate therefore **fails**; the repeated-symbol 64-point generator is not representative real RF. No specific OFDM mapping is decoded or validated.
 
 ## 2. Magic Metadata Inference
 **Limitation:** It is a physical impossibility to infer sample rate, center frequency, or timestamp natively from a flat array of `float32` complex IQ bytes.
-**Behavior:** The Phase 1 loaders will not guess. If a raw `.iq` file is provided without an accompanying `RawIQConfig` (or if a WAV file lacks standard header chunks), these values are marked `MISSING` and downstream calculations that require true time (like baud rate in Hz) will degrade gracefully to fractional units.
+**Behavior:** The ordinary workflow rejects raw IQ input without an explicit `RawIQConfig`; it does not silently infer the byte format. For an accepted recording, absent time/frequency metadata is represented as `MISSING`, and calculations requiring an absolute sample rate must not present a guessed Hz value. A malformed WAV header is an import error, not a valid recording with inferred metadata.
 
 ## 3. Blind Pseudo-Random De-interleaving
-**Limitation:** Seeded pseudo-random, diagonal, convolutional, and block transforms require an explicit profile or permutation.
+**Limitation:** Seeded pseudo-random, diagonal, and convolutional transforms require an explicit profile or permutation; block dimensions may also be searched within a bounded grid as described below.
 **Behavior:** The native engine applies a supplied seed/permutation deterministically but does not brute-force arbitrary pseudo-random permutations or unknown convolutional delay-line state.
 
 ## 4. Bounded Block Interleaver Search
-**Limitation:** Block interleaver dimension discovery is constrained to a predefined, finite search grid (e.g., `8, 12, 16, 32, 64, 128, 255`).
-**Behavior:** Interleavers with `rows` or `cols` outside this exact grid are invisible to the search. If a signal uses an unmapped dimension, Phase 4 will exhaust the search grid, report a failure diagnostic, and halt.
+**Limitation:** Blind block-interleaver discovery uses a finite default dimension grid (`8, 12, 16, 32, 64, 128, 255`), which callers may override through `deinterleaver_test_dims`; explicit profiles are a separate native path.
+**Behavior:** Dimensions outside the *configured* search grid are not discovered automatically. If none beats the no-interleaver baseline, the Python candidate path emits `DEINTERLEAVER_SEARCH_EXHAUSTED` and retains a `NONE` candidate; it does not necessarily halt the whole pipeline.
 
 ## 5. LDPC Profiles and Systematic Extraction
 **Limitation:** The native normalized min-sum decoder accepts supplied sparse matrices and `.alist` files, but no validated bundled `MACKAY_504_1008` matrix is present in this repository.
@@ -30,12 +30,18 @@ To maintain strict epistemic integrity, this codebase explicitly refuses to sile
 **Limitation:** The legacy structured BPSK and 16-QAM fixtures do not contain validated advertised concatenated FEC chains.
 **Behavior:** Demo Mode labels them as structured fixtures, keeps evaluation metadata separate from production requests, and never uses ground truth to select an analysis outcome. A genuine end-to-end FEC fixture corpus remains required before beta validation.
 
-## 8. Known GUI Divergences
-*Currently, all identified GUI-vs-pipeline wiring gaps have been successfully patched through the Phase 6 verification phase.* No other wiring divergence is known, but the GUI code explicitly relies on exact field matches to the `PipelineResult` dataclasses and must be updated in lockstep if those models change.
+## 8. GUI/Pipeline Field Wiring
+The 2026-09-29 [field audit](docs/gui_pipeline_field_audit.md) found **0 missing/renamed dataclass accesses** in the audited GUI render paths. A pre-render contract guard prevents partial sidebar mutation on field drift, and the actual asynchronous `AnalysisJob` completion path surfaces `GUI_PIPELINE_CONTRACT` distinctly; seven focused GUI tests passed. This is structural regression evidence, not exhaustive interactive GUI or Windows evidence. The audit also notes a low-severity `HeaderMatch.pattern` annotation/runtime discrepancy that the GUI currently handles safely.
+
+## 9. Negative-Suite Scope and False Confirmation
+The frozen version-1 synthetic release suite contains 10,000 windows and produced **L5=2/10,000** under its historical confirmed-frame predicate, both in S6 (`index=949` and `1041`), so its fixed-suite zero-L5 criterion **fails**. [Forensic reproduction](docs/negative_suite_s6_l5_root_cause.md) traced both to repeated 80-sample OFDM blocks, an unsupported-detector crest-factor miss, wrong 64-QAM lock with unverified bit mapping, three-offset matches to the short HDLC flag, and CRC-16/IBM hits found by sweeping thousands of header/polynomial/payload-length combinations. Both accepted CRC spans cross later HDLC flags. In 1041 the three matching 720-bit words are *identical repeats* and the top frame is `AMBIGUOUS`, yet historical L5 still fires. The working tree now constrains CRC validation to explicit profiles and fixed boundaries, rejects repeated words and crossing spans, and requires verified mapping before `CONFIRMED`; direct reruns of both triggers and the smoke suite produce no L5 claims. The historical gate remains FAIL until the frozen S6 and complete 10,000-window suite are rerun once with the revised predicate. L1=3,073, L2=3,518, and L4=2,937 are also nonzero; L3 non-uncoded FEC=0. A separate generic 1% worst-stratum rate-bound verdict happens to say PASS for L5, but it is not the zero-event gate. Moreover, `prd.md` requires held-out evidence for frame confirmation; the revised implementation still needs that broader validation. The v1 S7/S8 generator has uint8 PSK-symbol underflow, S8 mutates sync-filtered bits after modulation, and S6 uses only repeated 64-point OFDM symbols. These limit interpretation; they do not erase the observed L5 positives or authorize post-hoc suite edits. The corpus now contains one real T2 capture, but it has no independently established negative/family truth, so **T2 real-RF negatives remain 0** and no real-RF bound is claimed. See the [release findings](docs/negative_suite_findings.md) and the full per-stratum JSON/Markdown report under `build/negative/`.
+
+## 10. Windows Execution
+The `_native` CMake **MODULE** target already has the correct `LIBRARY DESTINATION signal_analysis` install rule under [CMake's artifact classification](https://cmake.org/cmake/help/latest/command/install.html#installing-targets). This is a static check only: no Windows build, wheel install, or GUI import transcript has been captured, and the cross-platform packaging gate remains open. The Windows runner's actual optional-package probe results also remain unobserved; the current probes log availability but do not link alternate implementations. See the [risk review](docs/windows_known_risks.md) and [CI runbook](docs/windows_ci_runbook.md).
 
 ### Native estimation and receiver limitations
 
-1. Phase 3 family classification and rate/CFO calibration has deterministic synthetic coverage plus a corpus manifest, hash-checked ingestion, T1 impairment instrument, and split/firewall evaluator. The committed T2 over-the-air corpus is **EMPTY (0 captures)**, so no representative accuracy or PRD gate is claimed. Exact 16/64/256-QAM order ranking can remain ambiguous even when the QAM family is correct.
+1. Phase 3 family classification and rate/CFO calibration has deterministic synthetic coverage plus a corpus manifest, hash-checked ingestion, T1 impairment instrument, and split/firewall evaluator. The committed T2 over-the-air corpus is **PARTIAL (1 capture)**: a checksum-verified CC-BY-4.0 Zenodo SigMF downlink recording. Its published provenance does not independently establish family, symbol rate, SNR, FEC, or transmitted bits, so it supports ingestion evidence only—not representative accuracy or a PRD gate. Exact 16/64/256-QAM order ranking can remain ambiguous even when the QAM family is correct.
 2. The PSD-floor SNR estimate is marked unreliable when the recording does not expose a separable noise-only band. Wideband FSK and multicarrier captures are particularly difficult.
 3. `ReceiverSession` preserves arbitrary chunk equivalence but buffers a bounded acquisition window and emits on `flush`; continuous incremental tracking is not implemented yet.
 4. DBPSK/DQPSK, OQPSK, and MSK paths are present. GMSK/GFSK, generic CPM, pi/4-DQPSK, adaptive multipath equalization, and finite-memory CPM sequence detection remain unsupported.

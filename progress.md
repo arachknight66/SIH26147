@@ -1,10 +1,10 @@
 # SIH26147 progress
 
-Last updated: 2026-09-18.
+Last updated: 2026-09-29.
 
 ## Current state
 
-**Native Phases 1–5, the Phase 6 shared GUI/CLI/Demo workflow, and Phase 7 validation tooling are integrated and locally validated on Linux; representative capture calibration, full negative/performance gates, cross-platform execution, and full 1-GB ordinary-workflow evidence remain open.**
+**Native Phases 1–5, the Phase 6 shared GUI/CLI/Demo workflow, and Phase 7 validation tooling are integrated and locally validated on Linux. The fixed 10,000-window synthetic negative suite is complete but FAILS the PRD's zero-confirmed-frame criterion (L5=2); representative capture calibration, performance gates, cross-platform execution, and full 1-GB ordinary-workflow evidence remain open.**
 
 The PySide GUI remains active. C++20 now provides recording conversion, preprocessing, statistics, PSD/STFT, spectral-band analysis, measured parameter/modulation analysis, configured receiver paths, bitstream transforms, Viterbi, RS, sparse-matrix LDPC, correlation, and CRC. The production Python pipeline calls native Phase 3–5 adapters; Python retains profile/orchestration and frame presentation.
 
@@ -55,7 +55,7 @@ The PySide GUI remains active. C++20 now provides recording conversion, preproce
 | 4. Synchronization and demodulation | In progress | Existing/core configured profiles, exact mapping tests, ambiguity and chunk tests pass; continuous tracking, multipath equalization, generic CPM and complete Gaussian-profile matrix remain open |
 | 5. Bitstream, interleaving, FEC | In progress | Configured native transforms/codecs and synthetic vectors pass; validated bundled LDPC matrix, configurable puncturing, genuine concatenated captures, bounded discovery, and corpus/negative gates remain open |
 | 6. Pipeline, GUI, Demo integration | In progress | Shared production jobs and manifest-backed Demo Mode pass local workflow/Qt tests; native streaming-source job execution, validated advertised FEC demo fixtures, and broader interactive evidence remain open |
-| 7. Validation, optimization, release | In progress | Local release-gate transcript, benchmark schema, native sanitizer build, and focused negative smoke corpus pass; hardware performance thresholds, 10,000-window/representative corpus, full ordinary-workflow streaming, clean-machine installation, and Windows evidence remain open |
+| 7. Validation, optimization, release | In progress | The frozen 10,000-window synthetic negative suite completed with two strict L5 claims, so the PRD zero-confirmation gate fails; hardware performance, representative T2 negatives, full ordinary-workflow streaming, clean-machine installation, and Windows evidence remain open |
 
 See [plan.md](plan.md) for the full acceptance criteria. Phases 1 and 2 have local Linux evidence; their remaining platform/scale gates and all later phase gates remain open.
 
@@ -109,7 +109,7 @@ Audit runs also emitted NumPy FFT overflow warnings. Numerical range and normali
 | Native contracts | API version 4 returns measured estimates with units, uncertainty, validity/evidence, ranked rate/modulation candidates, temporal consistency, and explicit inference status |
 | Held-out synthetic profiles | Deterministic seeds pass PSK/QAM/FSK family checks at 15 dB for the current test profiles; symbol rate is within the 2% gate on those fixtures |
 | CFO/gain behavior | CFO-tolerant family ranking passes configured synthetic offsets; uncertain high-order estimates are checked against their reported uncertainty rather than treated as exact |
-| Negative behavior | Noise, silence, short data, real-only data, and unsupported multicarrier evidence produce bounded or explicit unknown/unsupported results in targeted tests |
+| Negative behavior | Targeted noise/silence/short/real/multicarrier fixtures produced bounded or explicit unknown/unsupported results; the larger frozen Phase 7 suite below found counterexamples, including two L5 claims on OFDM-like windows |
 | Pipeline/CLI/GUI | Production pipeline uses one native analysis call; summaries serialize through CLI and measured rate/bandwidth/SNR appear in the existing sidebar |
 
 ## Phase 4 verification
@@ -123,11 +123,6 @@ Audit runs also emitted NumPy FFT overflow warnings. Numerical range and normali
 | Independent comparison | Native noisy QPSK BER matches an independent known-clock NumPy reference within the recorded tolerance |
 | Complete Python/GUI suite | 150 passed with Qt offscreen; one pre-existing precision-loss warning remains in the legacy OFDM plausibility feature path |
 | Carrier acquisition regression | A 40-seed, 25 dB RRC-QPSK sweep with 0.05 cycles/sample CFO locked and reported CFO within the existing 0.01 Hz-at-4-Hz fixture tolerance |
-| Phase 6 shared workflow | Four deterministic workflow tests passed: WAV import/analysis, renamed-capture invariance, pre-load cancellation, and Demo request/truth separation |
-| Phase 6 GUI/CLI | Qt-offscreen GUI workflow tests passed (7 tests across GUI suites); CLI completed the same production workflow for `test_clean_qpsk.wav` |
-| Phase 7 release gate | `tools/run_validation.py --quick --skip-native` passed 104 focused tests in 16.34 s and wrote a JSON transcript; schema and benchmark-report tests passed |
-| Phase 7 sanitizer | Clang 22 sanitizer build compiled all five native test executables. Tests 1–2 passed; Phase 3 sanitizer execution exceeded the local 30-second command window. The host GCC sanitizer linker is unavailable because `/usr/lib64/libasan.so.8.0.0` is missing. CI retains the complete sanitizer gate. |
-| Phase 7 wheel | `uv build --wheel` produced the CPython 3.13 Linux wheel; a clean temporary environment installed it with declared NumPy/SciPy dependencies and imported the release metadata/native API contract |
 | Distribution build | Clean CPython 3.13 Linux wheel built successfully with the Phase 4 bindings |
 
 ## Phase 5 verification
@@ -140,13 +135,45 @@ Audit runs also emitted NumPy FFT overflow warnings. Numerical range and normali
 | RS minimum-distance invariant | Python generator-root and native encoder-span regressions check the exact consecutive BCH roots for RS(255,223), RS(255,239), and RS(15,11). The previously considered native re-encode “gap” was not recorded here because it does not exist: zero syndrome already identifies a systematic codeword and radius-t RS decoding is unique. |
 | LDPC | Normalized min-sum validates syndrome convergence and reports iteration-budget exhaustion; direct sparse checks and `.alist` import are supported |
 | Production integration | Pipeline defaults to the explicit uncoded candidate; configured convolutional, RS, concatenated, and LDPC profiles use native code paths. Native correlation/CRC feed existing frame presentation |
-| Frame false-positive gate | GUI regression showed a lone CRC-8 collision could outrank periodic HDLC evidence; ranking now requires repetition before CRC-8 boosts a candidate |
+| CRC-8 ranking regression | GUI regression showed a lone CRC-8 collision could outrank periodic HDLC evidence; ranking now requires repetition before CRC-8 boosts a candidate. This does not pass the Phase 7 false-confirmation gate. |
 | Complete local suite | 159 passed with Qt offscreen; one legacy OFDM feature precision-loss warning remains |
 | Distribution build | Clean CPython 3.13 Linux wheel built successfully with the API version 5 bindings |
 
+## Phase 6 verification
+
+| Check | Result |
+|---|---|
+| Shared workflow | Four deterministic workflow tests passed: WAV import/analysis, renamed-capture invariance, pre-load cancellation, and Demo request/truth separation |
+| GUI/CLI | Qt-offscreen GUI workflow tests passed (7 tests across GUI suites); CLI completed the same production workflow for `test_clean_qpsk.wav` |
+| GUI field wiring | A live cross-reference found 0 missing/renamed dataclass accesses. A pre-render contract guard and narrow `AnalysisJob` completion-path handler surface `GUI_PIPELINE_CONTRACT` distinctly; `uv run pytest tests/test_gui.py -q` passed 7 tests. Details: [field audit](docs/gui_pipeline_field_audit.md). |
+
+## Phase 7 verification
+
+| Check | Result |
+|---|---|
+| Quick release checks | `tools/run_validation.py --quick --skip-native` passed 104 focused tests in 16.34 s and wrote a JSON transcript; schema and benchmark-report tests passed |
+| Sanitizer | Clang 22 sanitizer build compiled all five native test executables. Tests 1–2 passed; Phase 3 sanitizer execution exceeded the local 30-second command window. The host GCC sanitizer linker is unavailable because `/usr/lib64/libasan.so.8.0.0` is missing. CI retains the complete sanitizer gate. |
+| Linux wheel | `uv build --wheel` produced the CPython 3.13 Linux wheel; a clean temporary environment installed it with declared NumPy/SciPy dependencies and imported the release metadata/native API contract |
+
+### Fixed negative-suite result (2026-09-29)
+
+The existing `build/negative/release.jsonl` checkpoint was complete at 10,000 unique version-1 windows (1,250 in each of eight strata), with zero ERROR outcomes; no resume or new full-suite invocation was needed. Its SHA-256 is `17df428de04776f0ad6c212a28c1973e2528e9ad69f2fe932269e5f4def94ed6`. All eight regenerated concatenated-window-byte SHA-256 values matched the report. All statistical fields were recomputed from the JSONL with identical values; the final JSON additionally records the PRD fixed-suite zero-L5 FAIL, distinct from the generic 1% rate verdict. `uv run pytest tests/acceptance/test_negative_suite.py -q` passed 3 tests. The execution report records **one original full-run audit invocation** at commit `c8ad052c8bfe0dd02acf65ab61b63604523c2764` with a dirty worktree; five later forensic invocations of the same two L5 IDs are separately logged (current audit count: six), not pooled as new windows. Checkpoint timing records 17,338.124 summed per-window seconds but no whole-run start/end, so wall-clock runtime is not recoverable. See `build/negative/release_report.json`, `build/negative/release_report.md`, and [all triggering windows](docs/negative_suite_findings.md).
+
+| Claim level | Pooled k/10,000; rate (two-sided exact CP 95%) | Worst stratum; k/1,250; rate (two-sided exact CP 95%) | Generic 1% worst-stratum rate verdict |
+|---|---|---|---|
+| L1 modulation | 3,073; 30.73% (29.826–31.645%) | S7/S8; 1,250 each; 100% (99.705–100%) | FAIL |
+| L2 receiver | 3,518; 35.18% (34.243–36.125%) | S7/S8; 1,250 each; 100% (99.705–100%) | FAIL |
+| L3 non-uncoded FEC | 0; 0% (0–0.03688%) | All; 0; 0% (0–0.29468%) | PASS |
+| L4 frame | 2,937; 29.37% (28.478–30.274%) | S7; 1,139; 91.12% (89.405–92.639%) | FAIL |
+| **L5 strict confirmed frame** | **2; 0.02% (0.002422–0.072228%)** | **S6 OFDM-like; 2; 0.16% (0.019383–0.576768%)** | **PASS for the separate 1% rate bound, but FAIL for the PRD fixed-suite zero-event gate** |
+
+L1/L2/L4 are nonzero, as expected for a suite containing structured negatives, short sync words, and supported-family lookalikes; chance matching and partial acquisition are hypotheses requiring per-window triage, not explanations that erase the failures. Critically, the v1 S7/S8 generator has uint8 PSK-symbol underflow, and S8 removes sync patterns only after modulation, so the nominal low-SNR and sync-free interpretations are invalid. S6 contains a repeated 64-point OFDM symbol rather than diverse FFT sizes. The suite remains frozen; corrections require a separately versioned run. The synthetic-only L5=2 result fails the fixed suite's zero-L5 criterion. One T2 capture is now registered, but it has no independently established negative/family truth and is not pooled with this synthetic-negative result. The JSON's generic 1% PASS must not be read as a PRD zero-event PASS. Separately, `prd.md` requires held-out evidence for actual frame confirmation, while the suite's operational L5 predicate also allows repetition plus verified non-CRC-8; this semantic deviation needs a release decision rather than a claim of full PRD confirmation semantics.
+
+**S6 L5 root cause and mitigation (2026-09-29):** [Both windows were reproduced and traced](docs/negative_suite_s6_l5_root_cause.md). Their repeated 80-sample OFDM block evades the native unsupported gate because normalized crest factor is below 3, then 64-QAM is ranked CANDIDATE and receiver lock is mistaken for mapping evidence. Exact 8-bit HDLC flags form repeated-offset triples; byte-length CRC-16/IBM sweeps find 46- and 88-byte apparent payloads that cross later HDLC flags. In 1041, three CRC-valid 720-bit words are byte-identical repetitions of one accidental match, and the top frame is `AMBIGUOUS` even as operational L5 counts it. The eligible L5 search budgets are 2,792 and 9,423 (header, polynomial, length) trials respectively. The working tree now uses boundary-constrained, predeclared-profile CRC verification, rejects crossing and duplicate-word observations, and requires verified mapping before a `CONFIRMED` frame/L5 claim. Focused framing/pipeline/release tests (15) pass; the 400-window accumulated smoke suite and direct reruns of S6 949/1041 report L5=0. No full frozen S6 or 10,000-window post-fix run is claimed, so the historical gate remains FAIL.
+
 ## Verification limits and test hazards
 
-- Windows build and wheel installation are configured in `.github/workflows/native.yml` but have not executed in this workspace, so the Phase 1 cross-platform acceptance gate remains open.
+- Windows build and wheel installation are configured in `.github/workflows/native.yml` but have not executed in this workspace, so the Phase 1 cross-platform acceptance gate remains open. The `_native` MODULE install destination is statically correct under CMake's `LIBRARY` rule; this is not Windows execution evidence. See [runbook](docs/windows_ci_runbook.md) and [risk review](docs/windows_known_risks.md).
 - The `gui` extra is now installed in the project environment and its tests run offscreen.
 - The complete 1-GiB source was not processed end to end in this task. Full mode is chunk bounded and cancellation was exercised on the logical 1-GiB source, while the measured completed large-file run was a bounded preview with explicit incomplete coverage.
 - FFTW3 and libsndfile were unavailable locally. Phase 2 currently uses a portable radix-2 FFT and a bounded RIFF/WAVE PCM/float reader; RF64 and compressed WAV formats are unsupported.
@@ -159,12 +186,18 @@ Audit runs also emitted NumPy FFT overflow warnings. Numerical range and normali
 - The native Viterbi profile is currently the fixed K=7, rate-1/2 `(171,133)` implementation. Puncturing/profile catalogues, erasure-aware RS, and bounded profile discovery remain Phase 5 work.
 - The GUI integration test now writes its negative fixture under pytest's temporary directory. Root `test_qpsk_cfo.py` still writes tracked `test_16qam_cfo.wav` when imported and remains outside configured `tests/` collection.
 - Existing docs contain stale implementation claims. Use source/runtime evidence and this progress record to distinguish current behavior from the planned beta.
-- Representative-corpus status (2026-09-28): added `tools/corpus` schema/validator, hash-checked production-path ingestion, seeded T1 impairment instrument, calibration/held-out invocation audit firewall, and schema-versioned evaluator/tuning proposal path. Baseline `python -m tools.corpus.evaluate --tier T1 --split calibration` completed with no committed T1 captures; all applicable gates were `INSUFFICIENT_POWER` or `NOT_MEASURABLE`. The T2 corpus is **EMPTY (0 captures)**. T0/T1/T2 are never merged; T1 reports `NOT_REPRESENTATIVE`. No native estimator or receiver threshold/constant was changed. Representative Phase 3/4 validation remains blocked on user-supplied, independently documented T2 captures.
-- GUI/pipeline field-wiring audit (2026-09-29): completed a live mechanical cross-reference in `docs/gui_pipeline_field_audit.md`; zero missing/renamed dataclass accesses were found. Added a pre-mutation dataclass contract guard plus a narrow async-completion handler that surfaces `GUI_PIPELINE_CONTRACT` distinctly. `uv run pytest tests/test_gui.py -q` passed 7 tests, including real-dataclass happy path, atomic drift rejection, and the actual `AnalysisJob -> _poll_analysis_job` contract-error path.
+- Representative-corpus status (2026-09-29): added `tools/corpus` schema/validator, hash-checked production-path ingestion, seeded T1 impairment instrument, calibration/held-out invocation audit firewall, and schema-versioned evaluator/tuning proposal path. Baseline `python -m tools.corpus.evaluate --tier T1 --split calibration` completed with no committed T1 captures; all applicable gates were `INSUFFICIENT_POWER` or `NOT_MEASURABLE`. The T2 corpus is **PARTIAL (1 capture)**: a CC-BY-4.0 Zenodo SigMF downlink recording (record 13371136), checksum-verified and successfully loaded through the ordinary production path. Its source does not independently establish family, symbol rate, SNR, FEC, or transmitted bits, so it contributes no representative accuracy, negative-confidence, or PRD gate metric. T0/T1/T2 are never merged; T1 reports `NOT_REPRESENTATIVE`. No native estimator or receiver threshold/constant was changed. Representative Phase 3/4 validation remains blocked on a diverse set of independently documented T2 captures.
 
 ## Next implementation task
 
-Complete the representative Phase 3 calibration/negative corpus and Phase 4 continuous tracking, multipath equalization, and remaining specialized-profile matrix. For Phase 5, add a validated bundled LDPC matrix, punctured/profiled Viterbi, erasure-aware RS, genuine concatenated captures, and bounded profile discovery. Then execute the 10,000-window negative corpus, reference-laptop performance suite, full ordinary-workflow streaming test, clean-machine installs, and Windows CI before closing the phase gates.
+Implement and validate the [scoped structural L5 proposal](docs/negative_suite_s6_l5_root_cause.md) in a separate task with a positive control, then run the frozen S6 stratum and the full frozen suite before claiming a new gate outcome. Investigate the v1 suite-generator defects separately; a corrected suite requires a new version and a new fixed run, not post-hoc edits to v1. Obtain additional independently documented T2 captures—covering supported families, unsupported negatives, and independent truth—for representative Phase 3/4 validation. Continue Phase 4 tracking/equalization/profile work and Phase 5 matrix/puncturing/erasure/profile work. Run the reference-laptop performance suite, full ordinary-workflow streaming test, clean-machine installs, and Windows CI before closing the phase gates.
+
+## Documentation reconciliation (2026-09-29)
+
+- Moved Phase 6 and Phase 7 evidence out of the Phase 4 verification table, and merged the duplicate GUI audit note into Phase 6 verification; the underlying observations and counts were retained.
+- Qualified the Phase 3 targeted-negative row and renamed the Phase 5 CRC-8 item so neither implies the now-measured Phase 7 zero-confirmation gate passed.
+- Replaced the stale next-step instruction to execute an already-complete 10,000-window run with the observed L5 failures, frozen-generator findings, and versioned follow-up requirement.
+- Kept Windows execution pending and the RS no-gap statement. The corpus now has one provenance-verified but truth-incomplete T2 capture; it must not be read as representative gate evidence. `KNOWN_LIMITATIONS.md` now replaces the stale absolute OFDM/metadata/interleaver claims, including its block-search-vs-explicit-profile contradiction, with behavior supported by source and the release checkpoint. Both documents flag the difference between the suite's operational L5 and `prd.md`'s held-out frame-confirmation wording.
 
 ## Update rules
 

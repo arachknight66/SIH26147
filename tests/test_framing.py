@@ -136,3 +136,75 @@ def test_framing_unknown_fallback():
     
     assert len(frames) == 1
     assert frames[0].status == HypothesisStatus.UNKNOWN
+
+
+def _wire_crc(payload: np.ndarray, algorithm) -> np.ndarray:
+    value = compute_crc_bitwise(payload, algorithm)
+    return np.array([
+        (value >> (algorithm.width - 1 - index)) & 1
+        for index in range(algorithm.width)
+    ], dtype=np.uint8)
+
+
+def _header(offset: int, periodic: bool = True) -> HeaderMatch:
+    return HeaderMatch(
+        pattern=BUILTIN_SYNC_WORDS[0], bit_offset=offset,
+        hamming_distance=0, match_confidence=1.0,
+        periodicity_consistent=periodic,
+    )
+
+
+def test_configured_profile_confirms_independent_fixed_boundary_frames():
+    algorithm = COMMON_CRCS[1]
+    first = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
+    second = np.array([0, 1, 0, 1, 0, 1, 0, 1], dtype=np.uint8)
+    frame_a = np.concatenate([BUILTIN_SYNC_WORDS[0].bit_pattern, first, _wire_crc(first, algorithm)])
+    frame_b = np.concatenate([BUILTIN_SYNC_WORDS[0].bit_pattern, second, _wire_crc(second, algorithm)])
+    bits = np.concatenate([frame_a, frame_b])
+
+    frames = assemble_frames(bits, [_header(0), _header(len(frame_a))], frame_profiles=[{
+        "header_name": "HDLC_FLAG", "payload_bytes": 1,
+        "crc_name": "CRC-16/CCITT-FALSE",
+    }], allow_confirmation=True)
+
+    confirmed = [frame for frame in frames if frame.status is HypothesisStatus.CONFIRMED]
+    assert len(confirmed) == 2
+    assert all(frame.payload_length_bits == 8 for frame in confirmed)
+
+
+def test_repeated_crc_valid_word_is_not_independent_confirmation():
+    algorithm = COMMON_CRCS[1]
+    payload = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
+    frame = np.concatenate([BUILTIN_SYNC_WORDS[0].bit_pattern, payload, _wire_crc(payload, algorithm)])
+    bits = np.concatenate([frame, frame, frame])
+    offsets = [_header(index * len(frame)) for index in range(3)]
+
+    frames = assemble_frames(bits, offsets, frame_profiles=[{
+        "header_name": "HDLC_FLAG", "payload_bytes": 1,
+        "crc_name": "CRC-16/CCITT-FALSE",
+    }], allow_confirmation=True)
+
+    assert not any(frame.status is HypothesisStatus.CONFIRMED for frame in frames)
+
+
+def test_profile_rejects_crc_span_that_crosses_next_header():
+    bits = np.zeros(128, dtype=np.uint8)
+    bits[:8] = BUILTIN_SYNC_WORDS[0].bit_pattern
+    bits[16:24] = BUILTIN_SYNC_WORDS[0].bit_pattern
+
+    frames = assemble_frames(bits, [_header(0), _header(16)], frame_profiles=[{
+        "header_name": "HDLC_FLAG", "payload_bytes": 8,
+        "crc_name": "CRC-16/CCITT-FALSE",
+    }], allow_confirmation=True)
+
+    assert not any(frame.crc_candidate for frame in frames)
+
+
+def test_exploratory_framing_never_runs_crc_length_sweep():
+    algorithm = COMMON_CRCS[1]
+    payload = np.array([1, 0, 1, 0, 1, 0, 1, 0], dtype=np.uint8)
+    bits = np.concatenate([BUILTIN_SYNC_WORDS[0].bit_pattern, payload, _wire_crc(payload, algorithm)])
+
+    frames = assemble_frames(bits, [_header(0)])
+
+    assert frames[0].crc_candidate is None

@@ -146,6 +146,58 @@ if HAS_QT:
                 center_frequency_hz=cf
             )
 
+    class FrameProfileDialog(QDialog):
+        """Collect one explicit framing profile without guessing protocol fields."""
+
+        def __init__(self, profile=None, parent=None):
+            super().__init__(parent)
+            self.setWindowTitle("Frame Verification Profile")
+            layout = QFormLayout(self)
+            self.header_combo = QComboBox()
+            self.header_combo.addItems(["HDLC_FLAG", "CCSDS_ASM_32", "BARKER_11"])
+            self.payload_bytes_edit = QLineEdit("64")
+            self.crc_combo = QComboBox()
+            self.crc_combo.addItems([
+                "CRC-8", "CRC-16/CCITT-FALSE", "CRC-16/IBM", "CRC-32/IEEE",
+            ])
+            self.minimum_frames_edit = QLineEdit("2")
+            if profile:
+                header_index = self.header_combo.findText(str(profile.get("header_name", "")))
+                if header_index >= 0:
+                    self.header_combo.setCurrentIndex(header_index)
+                self.payload_bytes_edit.setText(str(profile.get("payload_bytes", "")))
+                crc_index = self.crc_combo.findText(str(profile.get("crc_name", "")))
+                if crc_index >= 0:
+                    self.crc_combo.setCurrentIndex(crc_index)
+                self.minimum_frames_edit.setText(str(profile.get("minimum_valid_frames", 2)))
+            layout.addRow("Sync marker:", self.header_combo)
+            layout.addRow("Fixed payload bytes:", self.payload_bytes_edit)
+            layout.addRow("CRC:", self.crc_combo)
+            layout.addRow("Minimum distinct frames:", self.minimum_frames_edit)
+            layout.addRow(QLabel("CRC spans crossing the next same marker are always rejected."))
+            buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+            buttons.accepted.connect(self.accept)
+            buttons.rejected.connect(self.reject)
+            layout.addRow(buttons)
+
+        def profile(self) -> dict:
+            try:
+                payload_bytes = int(self.payload_bytes_edit.text())
+                minimum_valid_frames = int(self.minimum_frames_edit.text())
+            except ValueError as exc:
+                raise ValueError("payload bytes and minimum frames must be integers") from exc
+            if payload_bytes <= 0:
+                raise ValueError("fixed payload bytes must be positive")
+            if minimum_valid_frames < 2:
+                raise ValueError("at least two distinct frame observations are required")
+            return {
+                "header_name": self.header_combo.currentText(),
+                "payload_bytes": payload_bytes,
+                "crc_name": self.crc_combo.currentText(),
+                "minimum_valid_frames": minimum_valid_frames,
+                "strict_next_header_boundary": True,
+            }
+
     class MetadataSidebar(QScrollArea):
         def __init__(self, parent=None):
             super().__init__(parent)
@@ -321,7 +373,8 @@ if HAS_QT:
                     f"<b>Frame Length:</b> {flen} bits<br>"
                     f"<b>Payload Length:</b> {fs.payload_length_bits} bits<br>"
                     f"<b>CRC Type:</b> {crc_name}<br>"
-                    f"<b>Valid Frames:</b> N/A"
+                    f"<b>Evidence Status:</b> {fs.status.value}<br>"
+                    f"<b>Valid Frames:</b> profile evidence required"
                 )
             else:
                 self.framing_text.setText(format_stage_status(pipe_res.framing_status, pipe_res.fec_status))
@@ -417,6 +470,13 @@ if HAS_QT:
             self.fec_profile.addItem("FEC: LDPC", "LDPC")
             self.sidebar_layout.addWidget(self.fec_profile)
 
+            self.frame_profile_btn = QPushButton("Configure frame profile…")
+            self.frame_profile_btn.clicked.connect(self.configure_frame_profile)
+            self.sidebar_layout.addWidget(self.frame_profile_btn)
+            self.frame_profile_label = QLabel("Frame verification: exploratory headers only")
+            self.frame_profile_label.setWordWrap(True)
+            self.sidebar_layout.addWidget(self.frame_profile_label)
+
             self.job_status = QLabel("Analysis: idle")
             self.sidebar_layout.addWidget(self.job_status)
             self.job_progress = QProgressBar()
@@ -430,6 +490,7 @@ if HAS_QT:
 
             self._active_job: AnalysisJob[ProductionAnalysisResult] | None = None
             self._active_request: AnalysisRequest | None = None
+            self._frame_profile: dict | None = None
             self._analysis_generation = 0
             self._job_timer = QTimer(self)
             self._job_timer.setInterval(40)
@@ -478,8 +539,26 @@ if HAS_QT:
                 else:
                     QMessageBox.warning(self, "Missing Fixture", f"Fixture not found at {fixture.path}")
 
+        def configure_frame_profile(self) -> None:
+            dialog = FrameProfileDialog(self._frame_profile, self)
+            if dialog.exec() != QDialog.Accepted:
+                return
+            try:
+                self._frame_profile = dialog.profile()
+            except ValueError as exc:
+                QMessageBox.warning(self, "Invalid frame profile", str(exc))
+                return
+            profile = self._frame_profile
+            self.frame_profile_label.setText(
+                "Frame verification: "
+                f"{profile['header_name']}, {profile['payload_bytes']} B, {profile['crc_name']}"
+            )
+
         def _selected_pipeline_config(self) -> dict:
-            return {"fec_profile": self.fec_profile.currentData()}
+            config = {"fec_profile": self.fec_profile.currentData()}
+            if self._frame_profile is not None:
+                config["frame_profiles"] = [dict(self._frame_profile)]
+            return config
 
         def start_analysis_request(self, request: AnalysisRequest) -> None:
             """Run the shared production workflow without touching Qt from its worker."""
@@ -586,7 +665,7 @@ if HAS_QT:
                 path = override_path
             else:
                 path, _ = QFileDialog.getOpenFileName(
-                    self, "Open Signal File", "", "All Files (*);;WAV (*.wav);;SigMF (*.sigmf-meta)",
+                    self, "Open Signal File", "", "Signal recordings (*.wav *.iq *.raw *.sigmf-meta);;WAV (*.wav);;Raw IQ (*.iq *.raw);;SigMF (*.sigmf-meta);;All Files (*)",
                     options=QFileDialog.DontUseNativeDialog
                 )
             if not path:

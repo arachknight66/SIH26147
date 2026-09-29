@@ -3,15 +3,40 @@ import json
 from pathlib import Path
 import numpy as np
 import pytest
-from tools.corpus.evaluate import clopper_pearson, minimum_n_zero_failure, _audit, FirewallError
+from tools.corpus.evaluate import clopper_pearson, minimum_n_zero_failure, _audit, FirewallError, evaluate
 from tools.corpus.impair import ImpairmentRecipe, impair, estimate_iq_gain_db
 from tools.corpus.validate_manifest import ManifestError, split_for, validate
 from tools.corpus.ingest import production_request
 from tools.corpus.evaluate import _prediction
 from signal_analysis.workflow import run_production_analysis
 
-def test_empty_committed_manifest_validates():
-    assert validate(Path('corpus/manifest.json'))['captures'] == []
+def test_committed_t2_manifest_record_validates_without_local_binary():
+    """The committed record is provenance only; the ignored binary is optional in CI."""
+    captures = validate(Path('corpus/manifest.json'))['captures']
+    assert len(captures) == 1
+    record = captures[0]
+    assert record['tier'] == 'T2'
+    assert record['format'] == 'SIGMF'
+    assert record['split'] in {'calibration', 'heldout'}
+    assert record['sha256'] == record['import_config']['metadata_sidecar_sha256']
+    assert len(record['import_config']['data_sidecar_sha256']) == 64
+
+def test_unknown_truth_is_not_misreported_as_an_unsupported_negative(tmp_path):
+    """Independent family truth is required before a capture enters either metric."""
+    manifest = json.loads(Path('corpus/manifest.json').read_text())
+    record = manifest['captures'][0].copy()
+    record['path'] = 'missing.sigmf-meta'  # no production work is needed for this filtering check
+    record['truth_ref'] = 'corpus/truth.json'
+    manifest['captures'][0] = record
+    corpus = tmp_path / 'corpus'; corpus.mkdir()
+    manifest_path = corpus / 'manifest.json'
+    manifest_path.write_text(json.dumps(manifest))
+    (corpus / 'truth.json').write_text(json.dumps({'schema_version': 1, 'captures': {
+        record['capture_id']: json.loads(Path('corpus/truth/truth.json').read_text())['captures'][record['capture_id']]
+    }}))
+    report = evaluate(manifest_path, tier='T2', split='calibration', output_dir=tmp_path / 'reports', allow_missing=True)
+    assert report['metrics']['family_accuracy']['n'] == 0
+    assert report['metrics']['high_confidence_wrong_unsupported']['n'] == 0
 
 def test_manifest_rejects_hash_and_nonhash_split(tmp_path):
     salt='x'*16; split,digest=split_for('cap',salt)

@@ -21,6 +21,19 @@ COMMON_CRCS = [
     CRCAlgorithm("CRC-32/IEEE", 32, 0x04C11DB7, 0xFFFFFFFF, True, True, 0xFFFFFFFF)
 ]
 
+
+def crc_algorithm(name: str) -> CRCAlgorithm:
+    """Return a shipped CRC by its stable profile name.
+
+    Discovery code must not silently substitute a different polynomial when a
+    requested protocol profile is unavailable.
+    """
+    requested = str(name).upper()
+    for algorithm in COMMON_CRCS:
+        if algorithm.name.upper() == requested:
+            return algorithm
+    raise ValueError(f"unsupported CRC profile: {name}")
+
 def _reflect(val: int, width: int) -> int:
     res = 0
     for i in range(width):
@@ -90,6 +103,39 @@ def compute_crc_bitwise(bits: np.ndarray, alg: CRCAlgorithm) -> int:
     config.xor_output = alg.xorout
     return int(native.crc_bits(np.ascontiguousarray(bits, dtype=np.uint8), config))
 
+
+def verify_crc_at_boundary(
+    bits: np.ndarray,
+    start_idx: int,
+    payload_bits: int,
+    algorithm: CRCAlgorithm,
+) -> Optional[CRCMatch]:
+    """Verify one predeclared CRC boundary without a payload-length sweep."""
+    if start_idx < 0 or payload_bits <= 0:
+        return None
+    crc_start = start_idx + payload_bits
+    end_idx = crc_start + algorithm.width
+    if end_idx > len(bits):
+        return None
+
+    payload = np.ascontiguousarray(bits[start_idx:crc_start], dtype=np.uint8)
+    received = bits[crc_start:end_idx]
+    received_crc = 0
+    if algorithm.refin:
+        for index, bit in enumerate(received):
+            received_crc |= int(bit) << index
+    else:
+        for index, bit in enumerate(received):
+            received_crc |= int(bit) << (algorithm.width - 1 - index)
+    if compute_crc_bitwise(payload, algorithm) != received_crc:
+        return None
+    return CRCMatch(
+        polynomial_hex=hex(algorithm.poly),
+        polynomial_name=algorithm.name,
+        bit_range_checked=(start_idx, end_idx),
+        verified=True,
+    )
+
 def search_crcs(bits: np.ndarray, start_idx: int, max_search_bytes: int = 2048) -> List[CRCMatch]:
     """
     Given a known header boundary (start_idx), search downstream for a valid CRC.
@@ -117,29 +163,8 @@ def search_crcs(bits: np.ndarray, start_idx: int, max_search_bytes: int = 2048) 
         # Often payloads are byte aligned (multiples of 8 bits).
         # We search byte-aligned lengths to keep it fast.
         for payload_bits in range(8, len(window) - crc_len + 1, 8):
-            payload = window[:payload_bits]
-            crc_received_bits = window[payload_bits : payload_bits + crc_len]
-            
-            # Pack received bits into an integer to compare
-            # Depending on refin, the CRC field on the wire might be LSB first.
-            rx_crc = 0
-            if alg.refin:
-                # If refin, bits were sent LSB first. So bit 0 is LSB of byte 0.
-                for i, b in enumerate(crc_received_bits):
-                    rx_crc |= (int(b) << i)
-            else:
-                # MSB first
-                for i, b in enumerate(crc_received_bits):
-                    rx_crc |= (int(b) << (crc_len - 1 - i))
-                    
-            computed_crc = compute_crc_bitwise(payload, alg)
-            
-            if computed_crc == rx_crc:
-                matches.append(CRCMatch(
-                    polynomial_hex=hex(alg.poly),
-                    polynomial_name=alg.name,
-                    bit_range_checked=(start_idx, start_idx + payload_bits + crc_len),
-                    verified=True
-                ))
+            match = verify_crc_at_boundary(bits, start_idx, payload_bits, alg)
+            if match is not None:
+                matches.append(match)
                 
     return matches

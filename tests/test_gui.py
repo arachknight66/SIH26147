@@ -2,7 +2,7 @@ import pytest
 import numpy as np
 import time
 from unittest.mock import patch, MagicMock
-from signal_analysis.gui import MainWindow, MetadataSidebar, HAS_QT, _get_status_color, format_stage_status, GuiPipelineContractError
+from signal_analysis.gui import MainWindow, MetadataSidebar, FrameProfileDialog, HAS_QT, _get_status_color, format_stage_status, GuiPipelineContractError
 from signal_analysis.models import (PipelineStageStatus, SignalRecording, SourceFormat,
     MetadataValue, MetadataStatus, PipelineResult)
 
@@ -72,6 +72,26 @@ def test_stereo_wav_heuristic(tmp_path):
     
     iq_guess = window._guess_stereo_mode_heuristic(str(iq_path))
     assert iq_guess == "stereo_iq"
+
+
+@pytest.mark.skipif(not HAS_QT, reason="Qt not available")
+def test_frame_profile_dialog_feeds_production_configuration():
+    from PySide6.QtWidgets import QApplication
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    dialog = FrameProfileDialog({
+        "header_name": "CCSDS_ASM_32",
+        "payload_bytes": 223,
+        "crc_name": "CRC-16/CCITT-FALSE",
+        "minimum_valid_frames": 2,
+    })
+
+    profile = dialog.profile()
+    window._frame_profile = profile
+    config = window._selected_pipeline_config()
+
+    assert config["frame_profiles"] == [profile]
+    assert profile["strict_next_header_boundary"] is True
     
 @pytest.mark.skipif(not HAS_QT, reason="Qt not available")
 def test_open_file_dialog_wiring_complex_iq(tmp_path):

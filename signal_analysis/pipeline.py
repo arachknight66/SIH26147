@@ -99,7 +99,14 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     patterns = config.get("sync_patterns", BUILTIN_SYNC_WORDS)
     matches = correlate_sync_words(final_bits, final_llrs, patterns)
     
-    frame_structures = assemble_frames(final_bits, matches)
+    frame_structures = assemble_frames(
+        final_bits,
+        matches,
+        frame_profiles=config.get("frame_profiles"),
+        # A carrier lock alone cannot prove constellation bit mapping.  A
+        # configured framing profile may be verified only after mapping is.
+        allow_confirmation=bool(demod.mapping_verified),
+    )
     top_frame = frame_structures[0] if frame_structures else None
     
     # Mark framing status

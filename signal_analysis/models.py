@@ -63,6 +63,7 @@ class FeatureValidity(Enum):
     UNAVAILABLE = "UNAVAILABLE"
 
 class HypothesisStatus(Enum):
+    CONFIRMED = "CONFIRMED"
     HYPOTHESIS_UNVERIFIED = "HYPOTHESIS_UNVERIFIED"
     AMBIGUOUS = "AMBIGUOUS"
     UNKNOWN = "UNKNOWN"

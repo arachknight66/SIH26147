@@ -1,4 +1,23 @@
 {
   "schema_version": 1,
-  "captures": {}
+  "captures": {
+    "zenodo-13371136-intelsat37e-gr4-packet-modem": {
+      "family": "UNKNOWN",
+      "exact_label": "UNKNOWN: packet-modem waveform not independently labeled by the source record",
+      "symbol_rate": {
+        "value": null,
+        "unit": "symbols/s",
+        "status": "UNKNOWN",
+        "method": "Zenodo record 13371136 metadata does not provide an independently verified symbol rate"
+      },
+      "snr": {
+        "value": null,
+        "unit": "dB",
+        "status": "UNKNOWN",
+        "method": "Zenodo record 13371136 metadata does not provide an independently measured SNR"
+      },
+      "fec_interleaver_profile": null,
+      "supported_by_engine": false
+    }
+  }
 }
