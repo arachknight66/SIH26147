@@ -27,11 +27,19 @@ jobs:
       - name: Run native C++ tests
         run: ctest --test-dir build/native-tests -C Release --output-on-failure
       - name: Build and install Python package
-        run: uv sync --extra test
+        run: uv sync --extra test --extra gui
       - name: Run native binding and Phase 2 tests
         run: uv run pytest tests/test_native_bindings.py tests/test_phase2_native.py tests/test_measurements.py tests/test_loaders.py
       - name: Verify GUI imports
-        run: uv run --extra gui python -c "from signal_analysis.gui import HAS_QT; assert HAS_QT"
+        run: |
+          uv run python - <<'PY'
+          import PySide6
+          import pyqtgraph
+          from signal_analysis.gui import HAS_QT
+
+          print(f"PySide6 {PySide6.__version__}; pyqtgraph {pyqtgraph.__version__}; HAS_QT={HAS_QT}")
+          assert HAS_QT, "Qt imports completed but signal_analysis.gui reports HAS_QT=False"
+          PY
 
   sanitizer-and-release-gates:
     runs-on: ubuntu-latest
