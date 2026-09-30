@@ -315,6 +315,25 @@ L1/L2/L4 are nonzero, as expected for a suite containing structured negatives, s
 - Updated `agent.md` and this status record so setup guidance no longer warns
   about removed file-mutating scripts. No test suite was run for cleanup.
 
+## GUI dependency check in CI (2026-09-30)
+
+- `pyproject.toml` already defines the `gui` extra with PySide6 and pyqtgraph.
+  Updated the native workflow to install both `test` and `gui` extras during
+  `uv sync`; on Ubuntu it also installs the Qt runtime libraries needed by
+  the bundled Qt modules.
+- Replaced a shell-specific inline command with cross-platform
+  `tools/verify_gui_import.py`, which imports PySide6 QtWidgets/QtCore,
+  pyqtgraph, and the application GUI module. This avoids Bash heredoc syntax
+  under the Windows PowerShell runner.
+- Clean Python 3.12 local reproduction passed with PySide6 6.11.2,
+  pyqtgraph 0.14.0, and `HAS_QT=True`. GitHub Actions run
+  [36706263002](https://github.com/arachknight66/SIH26147/actions/runs/36706263002)
+  passed `build-and-test` on both Ubuntu and Windows, including GUI import.
+- The separate `sanitizer-and-release-gates` job still failed in Actions at
+  release integration. The same local command completed with 112 tests passing
+  in 22.9 s. The full workflow is therefore not green yet; the failing hosted
+  release step needs its log output for a targeted diagnosis.
+
 ## Next implementation task
 
 The scoped structural L5 mitigation is implemented and has focused positive/negative evidence; the next release-validation step is to run the frozen S6 stratum and then the full frozen suite before changing the historical gate outcome. Investigate the v1 suite-generator defects separately; a corrected suite requires a new version and fixed run, not post-hoc edits to v1. Obtain independently documented T2 captures across supported families and unsupported negatives for representative Phase 3/4 validation. Continue Phase 4 tracking/equalization/profile work and Phase 5 matrix/puncturing/erasure/profile work. Run the reference-laptop performance suite, full ordinary-workflow streaming test, clean-machine installs, and Windows CI before closing the phase gates.
