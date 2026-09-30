@@ -30,13 +30,22 @@ jobs:
         run: uv sync --extra test --extra gui
       - name: Run native binding and Phase 2 tests
         run: uv run pytest tests/test_native_bindings.py tests/test_phase2_native.py tests/test_measurements.py tests/test_loaders.py
+      - name: Install Qt runtime libraries on Linux
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y \
+            libegl1 libgl1 libxkbcommon-x11-0 libxcb-cursor0 libxcb-icccm4 \
+            libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1
       - name: Verify GUI imports
         run: |
           uv run python - <<'PY'
-          import PySide6
+          from PySide6.QtWidgets import QApplication, QMainWindow
+          from PySide6.QtCore import Qt
           import pyqtgraph
           from signal_analysis.gui import HAS_QT
 
+          import PySide6
           print(f"PySide6 {PySide6.__version__}; pyqtgraph {pyqtgraph.__version__}; HAS_QT={HAS_QT}")
           assert HAS_QT, "Qt imports completed but signal_analysis.gui reports HAS_QT=False"
           PY
