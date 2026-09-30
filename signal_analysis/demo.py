@@ -7,11 +7,13 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
+from .loaders import RawIQConfig
+from .models import MetadataStatus
 from .workflow import AnalysisRequest
 
 
 _ROOT = Path(__file__).resolve().parents[1]
-_DEMO_DIR = _ROOT / "fixtures" / "demo"
+_DEMO_DIR = _ROOT / "fixtures" / "data_"
 _CATALOG_PATH = _DEMO_DIR / "catalog.json"
 _TRUTH_PATH = _DEMO_DIR / "truth.json"
 
@@ -21,17 +23,26 @@ class DemoFixture:
     identifier: str
     title: str
     filename: str
-    wav_stereo_mode: str
     narration: str
+    wav_stereo_mode: str = "unresolved"
+    raw_iq: dict[str, Any] | None = None
 
     @property
     def path(self) -> Path:
         return _DEMO_DIR / self.filename
 
     def analysis_request(self, pipeline_config: dict[str, Any] | None = None) -> AnalysisRequest:
+        raw_iq_config = None
+        if self.raw_iq is not None:
+            settings = dict(self.raw_iq)
+            status = settings.get("sample_rate_status")
+            if isinstance(status, str):
+                settings["sample_rate_status"] = MetadataStatus[status]
+            raw_iq_config = RawIQConfig(**settings)
         return AnalysisRequest(
             path=self.path,
             wav_stereo_mode=self.wav_stereo_mode,
+            raw_iq_config=raw_iq_config,
             pipeline_config=dict(pipeline_config or {}),
             origin="demo",
         )

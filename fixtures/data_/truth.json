@@ -2,6 +2,7 @@
   "clean_qpsk": {"generation":"deterministic synthetic QPSK", "evaluation_only":true},
   "structured_bpsk": {"generation":"legacy structured BPSK", "validated_concatenated":false, "evaluation_only":true},
   "low_snr_qpsk": {"generation":"deterministic noisy QPSK", "evaluation_only":true},
+  "low_snr_qpsk_iq": {"generation":"same quantized I/Q capture as low_snr_qpsk WAV, stored as complex64", "evaluation_only":true},
   "ofdm": {"generation":"deterministic synthetic OFDM", "expected_support":"unsupported", "evaluation_only":true},
   "real_valued": {"generation":"deterministic real-valued BPSK-derived audio", "evaluation_only":true},
   "clean_16qam": {"generation":"deterministic synthetic 16-QAM", "evaluation_only":true},

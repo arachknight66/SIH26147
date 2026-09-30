@@ -1,0 +1,9 @@
+file=demo_low_snr_qpsk.wav
+processing_status=COMPLETED
+semantic_type=complex_iq
+samples=8000
+sample_rate_hz=1000000.0
+gui_status=Analysis: completed
+hypothesis_status=COMPLETED
+hypotheses=5
+diagnostics=['GNU_RADIO_PREPROCESSING']

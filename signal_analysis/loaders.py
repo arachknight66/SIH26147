@@ -194,40 +194,17 @@ class WavReader:
         
     def read(self) -> SignalRecording:
         diagnostics = []
-        with wave.open(self.path, 'rb') as w:
-            n_channels = w.getnchannels()
-            sampwidth = w.getsampwidth()
-            framerate = w.getframerate()
-            n_frames = w.getnframes()
-            
-            raw_data = w.readframes(n_frames)
-            
-        if sampwidth == 1:
-            dtype = np.uint8
-            original_dtype = "uint8"
-        elif sampwidth == 2:
-            dtype = np.int16
-            original_dtype = "int16"
-        elif sampwidth == 3:
-            # 24-bit PCM: convert to 32-bit int
-            original_dtype = "int24"
-            padded = np.zeros(n_frames * n_channels * 4, dtype=np.uint8)
-            raw_np = np.frombuffer(raw_data, dtype=np.uint8)
-            # Assuming little endian for WAV PCM
-            padded[0::4] = raw_np[0::3]
-            padded[1::4] = raw_np[1::3]
-            padded[2::4] = raw_np[2::3]
-            padded[3::4] = np.where(padded[2::4] >= 128, 255, 0)
-            data = padded.view(np.int32)
-            dtype = np.int32
-        elif sampwidth == 4:
-            dtype = np.int32
-            original_dtype = "int32"
-        else:
-            raise ValueError(f"Unsupported sample width: {sampwidth}")
-            
-        if sampwidth != 3:
-            data = np.frombuffer(raw_data, dtype=dtype)
+        # scipy handles both PCM and IEEE-float WAV (format tag 3), unlike
+        # Python's wave module, which rejects float WAV before reading samples.
+        from scipy.io import wavfile
+        framerate, data = wavfile.read(self.path, mmap=False)
+        data = np.asarray(data)
+        n_channels = 1 if data.ndim == 1 else data.shape[1]
+        dtype_name = str(data.dtype)
+        original_dtype = {"uint8": "uint8", "int16": "int16", "int32": "int32",
+                          "float32": "float32", "float64": "float64"}.get(dtype_name, dtype_name)
+        if data.dtype.kind not in "iuf":
+            raise ValueError(f"Unsupported WAV sample dtype: {data.dtype}")
             
         if n_channels == 1:
             semantic_type = "mono_real"

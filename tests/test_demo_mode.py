@@ -6,23 +6,23 @@ from signal_analysis.loaders import WavReader
 
 def test_demo_mode_fixtures():
     # Verify the demo mode fixtures produce expected pipeline status
-    base_dir = Path(__file__).parent.parent / "fixtures" / "demo"
+    base_dir = Path(__file__).parent.parent / "fixtures" / "data_"
     if not base_dir.exists():
         pytest.skip("Demo fixtures not generated")
 
     fixtures = {
-        "demo_clean_qpsk.wav": PipelineStageStatus.COMPLETED,
-        "demo_concatenated.wav": PipelineStageStatus.COMPLETED,
-        "demo_low_snr_qpsk.wav": PipelineStageStatus.COMPLETED,
-        "demo_ofdm_out_of_scope.wav": PipelineStageStatus.NOT_ATTEMPTED,
-        "demo_real_valued_gate.wav": PipelineStageStatus.NOT_ATTEMPTED,
-        "demo_qam_clean.wav": PipelineStageStatus.COMPLETED,
-        "demo_qam_low_snr.wav": PipelineStageStatus.COMPLETED,
-        "demo_qam_concatenated.wav": PipelineStageStatus.COMPLETED,
+        "clean_qpsk.wav": PipelineStageStatus.COMPLETED,
+        "concatenated.wav": PipelineStageStatus.COMPLETED,
+        "low_snr_qpsk.wav": PipelineStageStatus.COMPLETED,
+        "ofdm_out_of_scope.wav": PipelineStageStatus.NOT_ATTEMPTED,
+        "real_valued_gate.wav": PipelineStageStatus.NOT_ATTEMPTED,
+        "qam_clean.wav": PipelineStageStatus.COMPLETED,
+        "qam_low_snr.wav": PipelineStageStatus.COMPLETED,
+        "qam_concatenated.wav": PipelineStageStatus.COMPLETED,
         # The native beta profile includes high-order square QAM acquisition.
-        "demo_qam_unsupported_order.wav": PipelineStageStatus.COMPLETED,
+        "qam_unsupported_order.wav": PipelineStageStatus.COMPLETED,
         # CFO-tolerant estimation now passes the correct candidate to the native receiver.
-        "demo_qam_cfo_capture.wav": PipelineStageStatus.COMPLETED
+        "qam_cfo_capture.wav": PipelineStageStatus.COMPLETED
     }
 
     for fname, expected_status in fixtures.items():

@@ -71,6 +71,35 @@ For more CLI options, run `uv run sih26147 --help`. JSON output includes
 versioned run metadata and coverage/execution information; it omits sample
 buffers and Demo ground truth.
 
+## Demo screenshots
+
+These captures show example application outputs. Hypothesis scores are ranking
+scores, not calibrated probabilities; receiver lock does not verify bit mapping
+or payload. Click any image to open its full-resolution version.
+
+### QPSK WAV
+
+The QPSK candidate is ranked first with a displayed score of 1.00, alongside a
+four-cluster constellation. The screenshot's SNR estimate is marked unreliable.
+
+[![QPSK WAV analysis](docs/screenshots/qpsk-wav-analysis.png)](docs/screenshots/qpsk-wav-analysis.png)
+
+### Higher-order QAM WAV
+
+The displayed constellation and ranking illustrate candidate analysis: 64-QAM
+is ranked above 16-QAM in this capture, while receiver bit mapping remains
+unverified.
+
+[![QAM WAV analysis](docs/screenshots/qam-wav-analysis.png)](docs/screenshots/qam-wav-analysis.png)
+
+### Raw-IQ input
+
+This raw-IQ example displays a 10 kS/s sample rate marked **ASSUMED**. Raw IQ
+files do not encode their sample rate, so provide the acquisition rate before
+interpreting frequency and symbol-rate measurements.
+
+[![Raw-IQ analysis](docs/screenshots/raw-iq-analysis.png)](docs/screenshots/raw-iq-analysis.png)
+
 ## Experimental ML training
 
 The optional ML workflow is a standalone experiment; it does not replace the

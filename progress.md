@@ -345,6 +345,29 @@ The scoped structural L5 mitigation is implemented and has focused positive/nega
 - Replaced the stale next-step instruction to execute an already-complete 10,000-window run with the observed L5 failures, frozen-generator findings, and versioned follow-up requirement.
 - Kept Windows execution pending and the RS no-gap statement. The corpus now has one provenance-verified but truth-incomplete T2 capture; it must not be read as representative gate evidence. `KNOWN_LIMITATIONS.md` now replaces the stale absolute OFDM/metadata/interleaver claims, including its block-search-vs-explicit-profile contradiction, with behavior supported by source and the release checkpoint. Both documents flag the difference between the suite's operational L5 and `prd.md`'s held-out frame-confirmation wording.
 
+## Demo fixture rename and raw-IQ variant (2026-09-30)
+
+- Updated Demo Mode to load its catalog, WAV fixtures, and evaluation truth from
+  `fixtures/data_`, matching the renamed files without the `demo_` prefix.
+  Updated the fixture tests, both fixture generators, and the architecture note
+  to use the new location and filenames.
+- Added `low_snr_qpsk.iq`, little-endian complex64 raw samples matching the
+  quantized I/Q samples in `low_snr_qpsk.wav`, and registered it as a Demo
+  option with known 1 MHz sample-rate metadata. Updated the main fixture
+  generator to recreate this companion file.
+- Smoke checked the Demo catalog assets and ran the new raw-IQ entry through
+  `run_production_analysis`: completed, complex-IQ semantic type, 8,000
+  samples, 1 MHz rate, five modulation hypotheses. The full test suite was not
+  run for this change.
+
+## README demo screenshots (2026-09-30)
+
+- Added the three supplied QPSK WAV, higher-order QAM WAV, and raw-IQ
+  application screenshots under `docs/screenshots/` and embedded them in the
+  README with captions that distinguish candidate ranking, unverified mapping,
+  and assumed raw-IQ sample rate.
+- Documentation-only change; no application tests were run.
+
 ## Update rules
 
 - Record completed changes, exact checks and outcomes, remaining issues, and next steps after each implementation task.

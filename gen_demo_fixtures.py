@@ -20,15 +20,24 @@ def save_wav(filename, complex_samples, fs=1000000):
         wf.setframerate(fs)
         wf.writeframes(stereo.tobytes())
 
-demo_dir = Path("fixtures/demo")
+def save_complex64_iq_from_wav(wav_path, iq_path):
+    """Write the exact quantized WAV I/Q channels as little-endian complex64."""
+    with wave.open(str(wav_path), 'rb') as wf:
+        if wf.getnchannels() != 2 or wf.getsampwidth() != 2:
+            raise ValueError("IQ companion requires a stereo 16-bit PCM WAV")
+        channels = np.frombuffer(wf.readframes(wf.getnframes()), dtype='<i2').reshape(-1, 2)
+    samples = channels[:, 0].astype(np.float32) + 1j * channels[:, 1].astype(np.float32)
+    samples.astype('<c8').tofile(iq_path)
+
+demo_dir = Path("fixtures/data_")
 demo_dir.mkdir(parents=True, exist_ok=True)
 
-# 1. demo_clean_qpsk.wav
+# 1. clean_qpsk.wav
 # Generation parameters: QPSK, 2000 symbols, 40dB SNR, no encoding.
 sig_qpsk_clean = generate_synthetic_signal("QPSK", n_symbols=2000, snr_db=40, return_bits=False)
-save_wav(str(demo_dir / "demo_clean_qpsk.wav"), sig_qpsk_clean)
+save_wav(str(demo_dir / "clean_qpsk.wav"), sig_qpsk_clean)
 
-# 2. demo_concatenated.wav
+# 2. concatenated.wav
 # Generation parameters: BPSK, 40dB SNR. Payload framed with HDLC_FLAG and CRC-8.
 # Then Reed-Solomon(255, 223), Block Interleaved (8x32), Convolutional Encoded (K=7, 1/2).
 pattern = BUILTIN_SYNC_WORDS[0].bit_pattern
@@ -39,7 +48,7 @@ hdr_bytes = len(pattern) // 8  # 1 byte
 crc_bytes = crc_alg.width // 8  # 1 byte
 data_bytes = 223 - hdr_bytes - crc_bytes  # 221 bytes
 
-# 2. demo_concatenated.wav
+# 2. concatenated.wav
 # Generation parameters: BPSK, 40dB SNR. Payload framed with HDLC_FLAG and CRC-8.
 # (Mirrors test_pipeline.py's end-to-end test signal where FEC is bypassed/failed but framing recovers it)
 pattern = BUILTIN_SYNC_WORDS[0].bit_pattern
@@ -72,14 +81,16 @@ snr_linear = 10 ** (snr_db / 10.0)
 noise_var = 1.0 / snr_linear
 noise = np.sqrt(noise_var / 2) * (np.random.randn(len(sig_bpsk)) + 1j * np.random.randn(len(sig_bpsk)))
 sig_concat = sig_bpsk + noise
-save_wav(str(demo_dir / "demo_concatenated.wav"), sig_concat)
+save_wav(str(demo_dir / "concatenated.wav"), sig_concat)
 
-# 3. demo_low_snr_qpsk.wav
+# 3. low_snr_qpsk.wav
 # Generation parameters: QPSK, 2000 symbols, 8dB SNR.
 sig_qpsk_noisy = generate_synthetic_signal("QPSK", n_symbols=2000, snr_db=8, return_bits=False)
-save_wav(str(demo_dir / "demo_low_snr_qpsk.wav"), sig_qpsk_noisy)
+low_snr_wav = demo_dir / "low_snr_qpsk.wav"
+save_wav(str(low_snr_wav), sig_qpsk_noisy)
+save_complex64_iq_from_wav(low_snr_wav, demo_dir / "low_snr_qpsk.iq")
 
-# 4. demo_ofdm_out_of_scope.wav
+# 4. ofdm_out_of_scope.wav
 # Generation parameters: OFDM, 64 subcarriers, CP length 16, QPSK symbols.
 # Bimodal frequency implies 16 states? Actually DAB has multiple states, but random OFDM will trigger it.
 n_carriers = 64
@@ -96,13 +107,13 @@ for i in range(n_ofdm_symbols):
     time_sym_cp = np.concatenate([time_sym[-cp_len:], time_sym])
     ofdm_syms[i*(n_carriers+cp_len):(i+1)*(n_carriers+cp_len)] = time_sym_cp
 
-save_wav(str(demo_dir / "demo_ofdm_out_of_scope.wav"), ofdm_syms * 5.0)
+save_wav(str(demo_dir / "ofdm_out_of_scope.wav"), ofdm_syms * 5.0)
 
-# 5. demo_real_valued_gate.wav
+# 5. real_valued_gate.wav
 # Generation parameters: BPSK (real only) saved as stereo where Ch0 = Ch1.
 sig_bpsk_real = generate_synthetic_signal("BPSK", n_symbols=2000, snr_db=30, return_bits=False)
 # It's already real, but we force it to be strictly real
 sig_bpsk_real = sig_bpsk_real.real + 0j
-save_wav(str(demo_dir / "demo_real_valued_gate.wav"), sig_bpsk_real)
+save_wav(str(demo_dir / "real_valued_gate.wav"), sig_bpsk_real)
 
 print("Fixtures generated successfully.")

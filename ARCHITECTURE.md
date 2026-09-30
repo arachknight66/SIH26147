@@ -123,5 +123,8 @@ The pipeline separates execution from scientific evidence:
   A confirmed frame requires configured, repeated CRC evidence and a verified
   bit mapping; held-out validation remains a release requirement.
 
-Demo ground truth is held in `fixtures/demo/truth.json`, separate from
-production requests and reports. It is read only by the explicit reveal path.
+Demo recordings and their catalog are held in `fixtures/data_`; evaluation
+truth is held separately in `fixtures/data_/truth.json`, isolated from
+production requests and reports and read only by the explicit reveal path.
+The low-SNR QPSK entry is available both as stereo WAV and as a raw
+little-endian complex64 `.iq` file with explicit sample-rate metadata.

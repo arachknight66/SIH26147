@@ -627,38 +627,22 @@ if HAS_QT:
             self.job_status.setText("Analysis: completed")
 
         def _guess_stereo_mode_heuristic(self, path: str) -> str:
-            import wave
             import numpy as np
             try:
-                with wave.open(path, 'rb') as wf:
-                    n_frames = min(wf.getnframes(), 4096)
-                    if n_frames == 0: return "unable to analyze"
-                    raw = wf.readframes(n_frames)
-                    sw = wf.getsampwidth()
-                    if sw not in [1, 2, 4]: return "unable to analyze"
-                    dt = np.uint8 if sw == 1 else np.int16 if sw == 2 else np.float32
-                    data = np.frombuffer(raw, dtype=dt).reshape(-1, 2)
-                    ch0 = data[:, 0].astype(np.float32)
-                    ch1 = data[:, 1].astype(np.float32)
-                    p0 = np.mean(ch0**2)
-                    p1 = np.mean(ch1**2)
-                    if p0 < 1e-6 and p1 < 1e-6:
-                        return "unable to analyze"
-                    
-                    ratio = p0 / p1 if p1 > 1e-9 else 0
-                    if ratio > 1: ratio = 1 / ratio
-                    
-                    ch0_c = ch0 - np.mean(ch0)
-                    ch1_c = ch1 - np.mean(ch1)
-                    var0 = np.var(ch0_c)
-                    var1 = np.var(ch1_c)
-                    
-                    if var0 > 0 and var1 > 0:
-                        correlation = abs(float(np.mean(ch0_c * ch1_c) / np.sqrt(var0 * var1)))
-                        if correlation >= 0.95:
-                            return "stereo_real"
-                        return "stereo_iq"
+                from scipy.io import wavfile
+                _, data = wavfile.read(path, mmap=False)
+                data = np.asarray(data)
+                if data.ndim != 2 or data.shape[1] != 2 or len(data) == 0:
                     return "unable to analyze"
+                data = data[:4096].astype(np.float64)
+                ch0, ch1 = data[:, 0], data[:, 1]
+                ch0_c = ch0 - np.mean(ch0)
+                ch1_c = ch1 - np.mean(ch1)
+                var0, var1 = np.var(ch0_c), np.var(ch1_c)
+                if var0 > 0 and var1 > 0:
+                    correlation = abs(float(np.mean(ch0_c * ch1_c) / np.sqrt(var0 * var1)))
+                    return "stereo_real" if correlation >= 0.95 else "stereo_iq"
+                return "unable to analyze"
             except Exception:
                 return "unable to analyze"
 
@@ -676,9 +660,9 @@ if HAS_QT:
             try:
                 path_lower = path.lower()
                 if path_lower.endswith(".wav"):
-                    import wave
-                    with wave.open(path, 'rb') as wf:
-                        channels = wf.getnchannels()
+                    from scipy.io import wavfile
+                    _, wav_samples = wavfile.read(path, mmap=False)
+                    channels = 1 if wav_samples.ndim == 1 else wav_samples.shape[1]
                     
                     mode = "unresolved"
                     if force_stereo_iq:
@@ -698,15 +682,25 @@ if HAS_QT:
                         dialog.setOption(QInputDialog.UseListViewForComboBoxItems, False)
                         dialog.setComboBoxEditable(False)
                         dialog.setWindowModality(Qt.ApplicationModal)
+
+                        # Demo fixtures are stereo I/Q WAVs. Keep Open File's
+                        # initial choice aligned with the channel heuristic so
+                        # users don't accidentally import them as two real
+                        # channels (the Q component would then be discarded).
+                        # Re-evaluate each file: reusing the previous choice can
+                        # silently classify a later I/Q capture as real stereo.
+                        heuristic_index = 1 if heuristic == "stereo_iq" else 0
+                        dialog.setTextValue(items[heuristic_index])
                         
                         QApplication.processEvents()
                         
-                        if dialog.exec() == QDialog.Accepted:
-                            item = dialog.textValue()
-                            if item in items:
-                                self._last_wav_mode_idx = items.index(item)
-                            if "stereo_real" in item: mode = "stereo_real"
-                            elif "stereo_iq" in item: mode = "stereo_iq"
+                        if dialog.exec() != QDialog.Accepted:
+                            return
+                        item = dialog.textValue()
+                        if item in items:
+                            self._last_wav_mode_idx = items.index(item)
+                        if "stereo_real" in item: mode = "stereo_real"
+                        elif "stereo_iq" in item: mode = "stereo_iq"
                             
                     request = AnalysisRequest(
                         path=Path(path),
