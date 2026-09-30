@@ -177,11 +177,82 @@ def _native_spectral(recording: SignalRecording, nperseg: int, max_stft_frames: 
     analyzer.finish(include_partial=True)
     return analyzer.result()
 
-def compute_psd(recording: SignalRecording, nperseg: int = 1024) -> PSDResult:
+def _gpu_spectral(recording: SignalRecording, nperseg: int, max_stft_frames: int):
+    """CUDA Welch/STFT path for plot-sized windows; returns host NumPy arrays."""
+    import cupy as cp  # Optional `gpu` dependency, imported only on request.
+
+    if nperseg <= 0:
+        raise ValueError("nperseg must be positive")
+    samples = recording.samples
+    is_complex = recording.semantic_type == "complex_iq"
+    if not is_complex:
+        samples = samples[:, 0] if samples.ndim > 1 else samples
+        samples = samples.real
+    samples = np.ascontiguousarray(samples, dtype=np.complex64)
+    available = max(16, min(nperseg, max(16, len(samples)), 1 << 20))
+    fft_size = 1 << (available.bit_length() - 1)
+    hop = max(1, fft_size // 2)
+    device_samples = cp.asarray(samples)
+    if len(samples) < fft_size:
+        device_samples = cp.pad(device_samples, (0, fft_size - len(samples)))
+    frame_count = 1 + max(0, (int(device_samples.size) - fft_size) // hop)
+    if max_stft_frames:
+        frame_count = min(frame_count, max_stft_frames)
+    starts = cp.arange(frame_count, dtype=cp.int64) * hop
+    indices = starts[:, None] + cp.arange(fft_size, dtype=cp.int64)[None, :]
+    frames = device_samples[indices]
+    window = cp.hanning(fft_size).astype(cp.float32)
+    windowed = frames * window
+    sample_rate = recording.sample_rate_hz.value if (
+        recording.sample_rate_hz.status == MetadataStatus.KNOWN and recording.sample_rate_hz.value
+    ) else None
+    normalization = cp.sum(window * window)
+    if is_complex:
+        transforms = cp.fft.fft(windowed, axis=1)
+        frequencies = cp.fft.fftfreq(fft_size, d=1.0 if sample_rate is None else 1.0 / sample_rate)
+    else:
+        transforms = cp.fft.rfft(windowed.real, axis=1)
+        frequencies = cp.fft.rfftfreq(fft_size, d=1.0 if sample_rate is None else 1.0 / sample_rate)
+    power = (cp.abs(transforms) ** 2) / normalization
+    if sample_rate is not None:
+        power = power / sample_rate
+    mean_psd = cp.mean(power, axis=0)
+    times = (starts + fft_size / 2) if sample_rate is None else (starts + fft_size / 2) / sample_rate
+    return (
+        cp.asnumpy(frequencies), cp.asnumpy(mean_psd), cp.asnumpy(times), cp.asnumpy(power),
+        "cycles/sample" if sample_rate is None else "Hz",
+        "samples" if sample_rate is None else "s",
+        "power/Hz" if sample_rate is not None else "power/(cycles/sample)",
+        int(device_samples.size),
+    )
+
+
+def _use_gpu(backend: str) -> bool:
+    choice = str(backend).lower()
+    if choice not in {"cpu", "gpu", "auto"}:
+        raise ValueError("spectral backend must be cpu, gpu, or auto")
+    if choice == "cpu":
+        return False
+    try:
+        import cupy as cp
+        available = int(cp.cuda.runtime.getDeviceCount()) > 0
+    except Exception as exc:
+        if choice == "gpu":
+            raise RuntimeError(f"GPU spectral backend unavailable: {type(exc).__name__}: {exc}") from exc
+        return False
+    if not available and choice == "gpu":
+        raise RuntimeError("GPU spectral backend unavailable: no CUDA device")
+    return available
+
+
+def compute_psd(recording: SignalRecording, nperseg: int = 1024, *, backend: str = "cpu") -> PSDResult:
     """
     Compute Welch's PSD.
     Two-sided for complex, one-sided for real.
     """
+    if _use_gpu(backend):
+        frequencies, psd, _times, _power, freq_unit, _time_unit, power_unit, processed = _gpu_spectral(recording, nperseg, 0)
+        return PSDResult(frequencies, psd, freq_unit, power_unit, processed, len(recording.samples))
     result = _native_spectral(recording, nperseg, 0)
     return PSDResult(
         result.frequencies,
@@ -204,7 +275,7 @@ class SpectrogramResult:
     source_samples: int = 0
     dropped_frames: int = 0
 
-def compute_spectrogram(recording: SignalRecording, nperseg: int = 256) -> SpectrogramResult:
+def compute_spectrogram(recording: SignalRecording, nperseg: int = 256, *, backend: str = "cpu") -> SpectrogramResult:
     """
     Compute STFT spectrogram.
     """
@@ -220,6 +291,12 @@ def compute_spectrogram(recording: SignalRecording, nperseg: int = 256) -> Spect
         provenance=recording.provenance,
         diagnostics=recording.diagnostics,
     )
+    if _use_gpu(backend):
+        frequencies, _psd, times, power, freq_unit, time_unit, power_unit, processed = _gpu_spectral(limited, nperseg, 512)
+        return SpectrogramResult(
+            frequencies, times, power.T, freq_unit, time_unit, power_unit,
+            processed, len(recording.samples), 0,
+        )
     result = _native_spectral(limited, nperseg, 512)
     return SpectrogramResult(
         result.frequencies,

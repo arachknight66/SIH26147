@@ -1,0 +1,144 @@
+{
+  "task": "synthetic multi-class modulation recognition",
+  "training_source": "generated signals with randomized SNR, CFO, phase, and samples-per-symbol",
+  "real_capture_used_for_training": false,
+  "classes": [
+    "BPSK",
+    "QPSK",
+    "8PSK",
+    "16QAM",
+    "64QAM",
+    "2FSK"
+  ],
+  "window_samples": 1024,
+  "synthetic_examples_per_class": 1200,
+  "split": {
+    "train": 5400,
+    "test": 1800,
+    "stratified": true,
+    "seed": 26147
+  },
+  "synthetic_holdout_balanced_accuracy": 0.8388888888888889,
+  "synthetic_holdout_confusion_matrix": [
+    [
+      264,
+      12,
+      12,
+      5,
+      7,
+      0
+    ],
+    [
+      8,
+      236,
+      52,
+      1,
+      3,
+      0
+    ],
+    [
+      7,
+      56,
+      228,
+      3,
+      6,
+      0
+    ],
+    [
+      1,
+      2,
+      4,
+      238,
+      55,
+      0
+    ],
+    [
+      0,
+      1,
+      3,
+      52,
+      244,
+      0
+    ],
+    [
+      0,
+      0,
+      0,
+      0,
+      0,
+      300
+    ]
+  ],
+  "synthetic_holdout_classification_report": {
+    "BPSK": {
+      "precision": 0.9428571428571428,
+      "recall": 0.88,
+      "f1-score": 0.9103448275862069,
+      "support": 300.0
+    },
+    "QPSK": {
+      "precision": 0.7687296416938111,
+      "recall": 0.7866666666666666,
+      "f1-score": 0.7775947281713345,
+      "support": 300.0
+    },
+    "8PSK": {
+      "precision": 0.7625418060200669,
+      "recall": 0.76,
+      "f1-score": 0.7612687813021702,
+      "support": 300.0
+    },
+    "16QAM": {
+      "precision": 0.7959866220735786,
+      "recall": 0.7933333333333333,
+      "f1-score": 0.7946577629382304,
+      "support": 300.0
+    },
+    "64QAM": {
+      "precision": 0.7746031746031746,
+      "recall": 0.8133333333333334,
+      "f1-score": 0.7934959349593496,
+      "support": 300.0
+    },
+    "2FSK": {
+      "precision": 1.0,
+      "recall": 1.0,
+      "f1-score": 1.0,
+      "support": 300.0
+    },
+    "accuracy": 0.8388888888888889,
+    "macro avg": {
+      "precision": 0.8407863978746289,
+      "recall": 0.8388888888888889,
+      "f1-score": 0.8395603391595486,
+      "support": 1800.0
+    },
+    "weighted avg": {
+      "precision": 0.8407863978746289,
+      "recall": 0.8388888888888889,
+      "f1-score": 0.8395603391595486,
+      "support": 1800.0
+    }
+  },
+  "real_transfer_check": {
+    "capture": "data/dataset_batches/indoor-jamming/selected/w1_nojamming_70000000.sigmf-data",
+    "known_label": "BPSK",
+    "label_basis": "source README / Zenodo record",
+    "windows": 32,
+    "predicted_class_counts": {
+      "BPSK": 32,
+      "QPSK": 0,
+      "8PSK": 0,
+      "16QAM": 0,
+      "64QAM": 0,
+      "2FSK": 0
+    },
+    "bpsk_prediction_fraction": 1.0,
+    "interpretation": "single-capture transfer check only; windows are not independent recordings"
+  },
+  "limitations": [
+    "Synthetic holdout measures only generated-data generalization.",
+    "The available real labeled capture documents BPSK only; this is not real multi-class validation.",
+    "Windows come from one capture/session and do not establish independent field performance."
+  ]
+}

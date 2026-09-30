@@ -85,11 +85,42 @@ JSON output includes a versioned `run_metadata` object containing the native API
 version, selected profiles, input coverage, and execution status. It excludes
 sample buffers, local paths, and Demo ground truth.
 
-Raw IQ requires explicit import parameters, for example:
+Raw IQ requires an explicit data representation. The sample-rate field defaults
+to **10 kS/s**, but is recorded as an **assumption** unless you mark it known
+from acquisition metadata:
 
 ```bash
-python -m signal_analysis.cli capture.iq --raw-dtype int16 --raw-iq-order iq --sample-rate-hz 1000000
+python -m signal_analysis.cli capture.iq --raw-dtype int16
+python -m signal_analysis.cli capture.iq --raw-dtype int16 --sample-rate-hz 1000000 --sample-rate-status known
 ```
+
+### GNU Radio preprocessing
+
+Every ordinary GUI, CLI, and Demo import passes through GNU Radio before the
+analysis pipeline. The application normalizes the selected analysis channel to
+`complex64`, then runs GNU Radio File Source → optional frequency translator /
+low-pass filter / rational resampler → File Sink. With no explicit transform
+settings it is an auditable pass-through graph. GNU Radio is therefore a
+required runtime dependency for normal processing; the sidecar preserves
+compatibility with the application's Python virtual environment.
+
+For common SDR raw captures declared as little-endian `complex64` or `int16`
+I/Q, the File Source reads the capture directly (and GNU Radio converts `int16`
+with an explicit unity scale). This avoids a full-size input staging copy; other
+declared representations are converted explicitly before entering the same
+flowgraph.
+
+```bash
+python -m signal_analysis.cli capture.cf32 --raw-dtype complex64 \
+  --sample-rate-hz 2000000 --sample-rate-status known \
+  --gnuradio-preprocess --gnuradio-output-rate-hz 10000 \
+  --gnuradio-lowpass-cutoff-hz 4500
+```
+
+The output rate is configuration-derived and remains labelled `ASSUMED`; it is
+not inferred from the samples. WAV and SigMF imports use the same GNU Radio
+pass-through path, retaining their imported rate metadata unless a configured
+rate conversion is requested.
 
 Frame confirmation is intentionally profile-driven: exploratory sync matches
 remain hypotheses. To verify a payload CRC, provide a JSON list with the
@@ -117,3 +148,21 @@ The GUI offers the same configured verification flow through **Configure frame
 profile…**. Raw files are accepted as `.iq`, `.raw`, or any selected file; the
 import dialog requires the acquisition dtype, I/Q ordering, endianness, and
 sample rate rather than guessing them from bytes.
+
+Use `--compute-backend auto` to use optional CUDA/CuPy kernels where available,
+or `--compute-backend gpu` to require them. CUDA covers PSD/STFT, post-lock
+PSK/QAM and configured FSK decision/LLR generation, fixed K=7 Viterbi,
+zero-syndrome RS screening, and bitstream correlation. Carrier/timing
+acquisition, RS correction, LDPC, framing, and unsupported profiles remain
+explicit CPU stages. See [GPU acceleration](docs/gpu_acceleration.md).
+
+For CUDA 13 systems, install the optional CUDA accelerator with:
+
+```bash
+uv sync --extra gpu
+```
+
+When a CUDA device is available, the GUI automatically runs its PSD and
+waterfall/STFT computation on the GPU. CLI/pipeline GPU stages are selected
+with `--compute-backend auto` or `gpu`; their CPU boundaries are documented in
+[GPU acceleration](docs/gpu_acceleration.md).

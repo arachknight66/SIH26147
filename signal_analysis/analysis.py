@@ -6,6 +6,8 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
+from .constants import DEFAULT_MAX_ANALYSIS_SAMPLES
+
 from .models import (
     CandidateParameters,
     HypothesisStatus,
@@ -88,6 +90,13 @@ def analyze_modulation(
     samples = recording.samples
     if samples.ndim > 1:
         samples = samples[:, 0]
+    sample_limit = int(options.get("analysis_sample_limit", DEFAULT_MAX_ANALYSIS_SAMPLES))
+    if sample_limit <= 0:
+        raise ValueError("analysis_sample_limit must be positive")
+    # Parameter estimation is a bounded preview operation.  Receivers retain
+    # their own declared acquisition coverage; this prevents an unfamiliar
+    # long WAV/IQ capture from feeding an unbounded O(N) estimator.
+    samples = samples[:sample_limit]
     if samples.dtype != np.complex64 or not samples.flags.c_contiguous:
         samples = np.ascontiguousarray(samples, dtype=np.complex64)
     analysis = analyze_window_native(samples, config=native_config)

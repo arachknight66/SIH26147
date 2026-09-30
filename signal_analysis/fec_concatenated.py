@@ -37,7 +37,7 @@ def decode_concatenated(demod_result: DemodulationResult, config: Optional[Dict[
     initial_deint = DeinterleavingResult(demod_result.hard_bits, demod_result.soft_llrs, none_hyp, 0.0)
     if profile == "RS_255_223":
         deint_res, _ = attempt_deinterleaving(demod_result, config)
-        rs_res = decode_reed_solomon(deint_res)
+        rs_res = decode_reed_solomon(deint_res, backend=str(config.get("compute_backend", "cpu")))
         return rs_res, rs_res, deint_res
     if profile == "LDPC":
         deint_res, _ = attempt_deinterleaving(demod_result, config)
@@ -51,7 +51,7 @@ def decode_concatenated(demod_result: DemodulationResult, config: Optional[Dict[
         )
         return unsupported, unsupported, initial_deint
 
-    viterbi_res = viterbi_decode_soft(initial_deint)
+    viterbi_res = viterbi_decode_soft(initial_deint, backend=str(config.get("compute_backend", "cpu")))
     fake_demod = DemodulationResult(
         hard_bits=viterbi_res.decoded_bits,
         soft_llrs=np.zeros(0, dtype=np.float32),
@@ -65,5 +65,5 @@ def decode_concatenated(demod_result: DemodulationResult, config: Optional[Dict[
     deint_res, _ = attempt_deinterleaving(fake_demod, config)
     if profile == "CONVOLUTIONAL_K7_R12":
         return viterbi_res, viterbi_res, deint_res
-    rs_res = decode_reed_solomon(deint_res)
+    rs_res = decode_reed_solomon(deint_res, backend=str(config.get("compute_backend", "cpu")))
     return viterbi_res, rs_res, deint_res

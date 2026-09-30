@@ -146,6 +146,35 @@ def attempt_synchronization(recording: SignalRecording, hyp: ModulationHypothesi
         )
         for item in native_result.diagnostics
     ]
+    hard_bits = np.asarray(native_result.hard_bits)
+    soft_llrs = np.asarray(native_result.soft_llrs)
+    requested_backend = config.get("compute_backend", "cpu")
+    from .acceleration import should_use_gpu
+    if should_use_gpu(requested_backend) and native_result.acquisition_status.name == "LOCKED":
+        try:
+            from .gpu_dsp import gpu_demap_symbols, gpu_demap_fsk
+            name = hyp.label.upper()
+            if name in {"BPSK", "QPSK", "OQPSK", "8PSK", "16-QAM", "64-QAM", "256-QAM"}:
+                hard_bits, soft_llrs = gpu_demap_symbols(
+                    np.asarray(native_result.symbols), name, float(native_result.noise_variance)
+                )
+            elif name in {"2-FSK", "4-FSK", "8-FSK", "MSK"}:
+                tone_count = {"2-FSK": 2, "4-FSK": 4, "8-FSK": 8, "MSK": 2}[name]
+                hard_bits, soft_llrs = gpu_demap_fsk(
+                    np.asarray(native_result.symbols), tone_count, float(native_result.noise_variance)
+                )
+            else:
+                raise ValueError(f"no GPU demapper for {name}")
+            diagnostics.append(Diagnostic(
+                Severity.INFO, "GPU_RECEIVER_DECISIONS",
+                "CUDA recomputed post-lock hard decisions and max-log LLRs; native acquisition remains authoritative.",
+                f"modulation={name}; symbols={len(native_result.symbols)}",
+            ))
+        except ValueError as exc:
+            diagnostics.append(Diagnostic(
+                Severity.INFO, "GPU_RECEIVER_STAGE_NOT_APPLICABLE",
+                "This receiver profile has no equivalent CUDA decision kernel; native CPU decisions were retained.", str(exc),
+            ))
     locked = native_result.acquisition_status.name == "LOCKED"
     # Receiver evidence is combined with the independent upstream ranking; low EVM alone is not confirmation.
     hypothesis_confirmed = locked and hyp.score >= float(config.get("receiver_hypothesis_threshold", 0.55))
@@ -167,8 +196,8 @@ def attempt_synchronization(recording: SignalRecording, hyp: ModulationHypothesi
         timing_offset_samples=float(native_result.timing_offset_samples),
     )
     return DemodulationResult(
-        hard_bits=np.asarray(native_result.hard_bits),
-        soft_llrs=np.asarray(native_result.soft_llrs),
+        hard_bits=hard_bits,
+        soft_llrs=soft_llrs,
         bits_per_symbol=int(native_result.bits_per_symbol),
         symbol_decisions=np.asarray(native_result.symbols),
         sync_result=sync_res,

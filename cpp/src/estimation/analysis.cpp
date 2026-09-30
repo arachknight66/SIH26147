@@ -152,11 +152,18 @@ double phase_moment(const std::vector<std::complex<double>>& samples, const unsi
 
 std::vector<std::complex<double>> symbol_samples(
     const std::vector<std::complex<double>>& samples, const double sps, const double cfo,
-    const std::size_t phase) {
-    const auto stride = std::max<std::size_t>(2U, static_cast<std::size_t>(std::llround(sps)));
+    const double phase) {
+    // A frequency estimate that predicts fewer than four cycles of rotation
+    // across this observation is below the reliable resolution of this
+    // preview. Treating it as exact can smear an otherwise stationary
+    // constellation across several phase states.
+    const double applied_cfo = std::abs(cfo) * static_cast<double>(samples.size()) < 4.0 ? 0.0 : cfo;
     std::vector<std::complex<double>> output;
-    for (std::size_t index = phase; index < samples.size(); index += stride) {
-        output.push_back(samples[index] * std::polar(1.0, -2.0 * pi * cfo * static_cast<double>(index)));
+    for (double index = phase; index + 1.0 < static_cast<double>(samples.size()); index += sps) {
+        const auto left = static_cast<std::size_t>(index);
+        const double fraction = index - static_cast<double>(left);
+        const auto interpolated = samples[left] * (1.0 - fraction) + samples[left + 1U] * fraction;
+        output.push_back(interpolated * std::polar(1.0, -2.0 * pi * applied_cfo * index));
     }
     return output;
 }
@@ -223,7 +230,12 @@ FitResult fit_constellation(
         }
         const double occupancy = points.size() > 1U ? entropy / std::log(static_cast<double>(points.size())) : 1.0;
         const double normalized_error = error / static_cast<double>(used_symbols);
-        if (normalized_error < best.error) best = {normalized_error, occupancy};
+        // A single phase sample can fit one occupied constellation point
+        // extremely well while carrying no modulation-order evidence. Prefer
+        // similarly good timing/phase fits that show the expected occupancy.
+        const double selection_cost = normalized_error + 0.02 * (1.0 - occupancy);
+        const double best_cost = best.error + 0.02 * (1.0 - best.occupancy);
+        if (selection_cost < best_cost) best = {normalized_error, occupancy};
     }
     return best;
 }
@@ -329,12 +341,14 @@ std::vector<ModulationCandidate> classify(
     for (const auto& model : models) {
         const double cfo = power_cfo(samples, model.order);
         FitResult best_fit;
-        const auto stride = std::max<std::size_t>(2U, static_cast<std::size_t>(std::llround(sps)));
-        for (std::size_t phase = 0; phase < stride; ++phase) {
-            const auto symbols = symbol_samples(samples, sps, cfo, phase);
+        const auto phase_count = std::max<std::size_t>(2U, static_cast<std::size_t>(std::ceil(sps)));
+        for (std::size_t phase = 0; phase < phase_count; ++phase) {
+            const auto symbols = symbol_samples(samples, sps, cfo, static_cast<double>(phase));
             const auto points = model.qam_side ? qam_points(model.qam_side) : psk_points(model.order);
             const auto fit = fit_constellation(symbols, points, model.order);
-            if (fit.error < best_fit.error) best_fit = fit;
+            const double fit_cost = fit.error + 0.02 * (1.0 - fit.occupancy);
+            const double best_cost = best_fit.error + 0.02 * (1.0 - best_fit.occupancy);
+            if (fit_cost < best_cost) best_fit = fit;
         }
         double score = std::exp(-4.0 * best_fit.error) *
                        std::exp(-5.0 * (1.0 - best_fit.occupancy)) *

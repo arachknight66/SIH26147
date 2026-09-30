@@ -1,0 +1,7 @@
+{
+  "description": "Complex IQ stored as stereo WAV: channel 1 is I, channel 2 is Q.",
+  "source_sigmf_data": "gr4-packet-modem-intelsat37e-test.sigmf-data",
+  "source_format": "cf32_le",
+  "sample_rate_hz": 500,
+  "sample_rate_status": "KNOWN from SigMF metadata"
+}

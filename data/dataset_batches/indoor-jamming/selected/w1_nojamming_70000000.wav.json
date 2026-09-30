@@ -1,0 +1,10 @@
+{
+  "description": "Complex IQ as stereo WAV: channel 1 is I, channel 2 is Q.",
+  "source_iq": "w1_nojamming_70000000.iq",
+  "source_format": "complex float32 little-endian",
+  "actual_sample_rate_hz": null,
+  "wav_container_sample_rate_hz": 10000,
+  "wav_rate_status": "ASSUMED placeholder for WAV compatibility; not measured or documented by source",
+  "known_modulation": "BPSK",
+  "note": "Use the original .iq file for processing that supports unknown sample rates."
+}

@@ -116,8 +116,8 @@ if HAS_QT:
             self.dtype_combo.addItems(["int8", "int16", "float32", "complex64", "uint8"])
             layout.addRow("Data Type:", self.dtype_combo)
             
-            self.sr_edit = QLineEdit("1000000")
-            layout.addRow("Sample Rate (Hz):", self.sr_edit)
+            self.sr_edit = QLineEdit("10000")
+            layout.addRow("Sample Rate (Hz, assumed default):", self.sr_edit)
             
             self.cf_edit = QLineEdit("0")
             layout.addRow("Center Freq (Hz):", self.cf_edit)
@@ -143,7 +143,9 @@ if HAS_QT:
                 iq_order=self.order_combo.currentText(),
                 endian=self.endian_combo.currentText(),
                 sample_rate_hz=sr,
-                center_frequency_hz=cf
+                center_frequency_hz=cf,
+                sample_rate_source="gui_default_10ksps",
+                sample_rate_status=MetadataStatus.ASSUMED,
             )
 
     class FrameProfileDialog(QDialog):
@@ -665,14 +667,15 @@ if HAS_QT:
                 path = override_path
             else:
                 path, _ = QFileDialog.getOpenFileName(
-                    self, "Open Signal File", "", "Signal recordings (*.wav *.iq *.raw *.sigmf-meta);;WAV (*.wav);;Raw IQ (*.iq *.raw);;SigMF (*.sigmf-meta);;All Files (*)",
+                    self, "Open Signal File", "", "Signal recordings (*.wav *.WAV *.iq *.IQ *.raw *.RAW *.sigmf-meta *.SIGMF-META);;WAV (*.wav *.WAV);;Raw IQ (*.iq *.IQ *.raw *.RAW);;SigMF (*.sigmf-meta *.SIGMF-META);;All Files (*)",
                     options=QFileDialog.DontUseNativeDialog
                 )
             if not path:
                 return
                 
             try:
-                if path.endswith(".wav"):
+                path_lower = path.lower()
+                if path_lower.endswith(".wav"):
                     import wave
                     with wave.open(path, 'rb') as wf:
                         channels = wf.getnchannels()
@@ -711,7 +714,7 @@ if HAS_QT:
                         pipeline_config=self._selected_pipeline_config(),
                         origin="file",
                     )
-                elif path.endswith(".sigmf-meta"):
+                elif path_lower.endswith(".sigmf-meta"):
                     request = AnalysisRequest(
                         path=Path(path),
                         pipeline_config=self._selected_pipeline_config(),
@@ -721,7 +724,7 @@ if HAS_QT:
                     dialog = RawIQDialog(self)
                     if self._last_raw_config:
                         # Pre-fill (simple version)
-                        dialog.sr_edit.setText(str(self._last_raw_config.sample_rate_hz or 1000000))
+                        dialog.sr_edit.setText(str(self._last_raw_config.sample_rate_hz or 10000))
                         dialog.cf_edit.setText(str(self._last_raw_config.center_frequency_hz or 0))
                     
                     if dialog.exec():
@@ -818,7 +821,7 @@ if HAS_QT:
                 if recording.semantic_type == "complex_iq":
                     self.waveform_plot.plot(indices, plot_data.imag, pen='r', name='Q / Imag')
                     
-            psd_result = compute_psd(recording)
+            psd_result = compute_psd(recording, backend="auto")
             self.psd_plot.clear()
             self.psd_plot.plot(psd_result.frequencies, 10 * np.log10(psd_result.psd + 1e-12), pen='g')
             self.psd_plot.setLabel('bottom', "Frequency", units=psd_result.freq_unit)
@@ -828,7 +831,7 @@ if HAS_QT:
                 f"{psd_result.source_samples:,} samples"
             )
             
-            spec_result = compute_spectrogram(recording)
+            spec_result = compute_spectrogram(recording, backend="auto")
             self.waterfall_img.setImage(10 * np.log10(spec_result.Sxx.T + 1e-12), autoLevels=True)
             
             if len(spec_result.times) > 0 and len(spec_result.frequencies) > 0:

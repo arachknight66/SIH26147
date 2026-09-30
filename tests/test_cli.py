@@ -96,3 +96,15 @@ def test_cli_rejects_malformed_frame_profile_file(tmp_path):
 
     assert result.returncode == 2
     assert "JSON list" in result.stderr
+
+
+def test_cli_raw_default_rate_is_explicitly_assumed(tmp_path):
+    raw = tmp_path / "capture.iq"
+    np.array([1 + 1j, -1 - 1j], dtype=np.complex64).tofile(raw)
+    result = subprocess.run([
+        sys.executable, "-m", "signal_analysis.cli", str(raw), "--raw-dtype", "complex64",
+    ], capture_output=True, text=True)
+    assert result.returncode == 0
+    record = json.loads(result.stdout)[str(raw)]["recording"]
+    assert record["sample_rate_hz"]["value"] == 10_000.0
+    assert record["sample_rate_hz"]["status"] == "ASSUMED"

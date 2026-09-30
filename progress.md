@@ -44,6 +44,9 @@ The PySide GUI remains active. C++20 now provides recording conversion, preproce
 - [x] Replaced Demo Mode's hard-coded labels and invalid concatenated-FEC claims with a deterministic fixture manifest; evaluation truth is isolated in `fixtures/demo/truth.json` and read only by the explicit Reveal Ground Truth action.
 - [x] Added versioned CLI run metadata containing native API/runtime identity, selected profiles, source semantics, execution status, and coverage without sample data, paths, or Demo truth.
 - [x] Added reproducible JSON validation and benchmark tools, sanitizer CMake configuration, Linux CI sanitizer/release gates, and a deterministic small noise regression corpus.
+- [x] Verified public over-the-air recordings through ordinary import paths: the Zenodo Intelsat 37e SigMF recording (and its identical raw `.iq` byte stream with explicit import metadata) passed import/provenance checks; the CC0 BPSK31 WAV completed bounded spectral and production-pipeline analysis. Long recordings now use an explicit 262,144-sample parameter-analysis window and emit `ANALYSIS_WINDOW_LIMITED` rather than implying full-recording inference. The BPSK31 recording remains a real-valued audio/passband input outside the configured complex-baseband receiver path, so it is correctly not claimed as demodulated.
+- [x] Downloaded and processed two additional CC-BY-NC-SA Polish 11 off-air WAVs with declared 400 Bd FSK and 100 Bd QPSK formats. Both completed ordinary WAV import and bounded analysis; their real passband representation is explicitly gated as `NON_COMPLEX_PIPELINE`, not misreported as complex-baseband demodulation. Added optional CUDA/CuPy capability discovery and a strict `--compute-backend` contract: `auto` reports hardware readiness while retaining CPU-native DSP, and forced `gpu` fails instead of silently using the CPU. See [gpu acceleration readiness](docs/gpu_acceleration.md).
+- [x] Installed and validated the optional CuPy CUDA 13 backend on the local RTX 3050. GUI PSD and STFT/waterfall computation now select the GPU automatically when available; CPU/GPU peak-equivalence and GUI tests pass. A warm 262,144-sample, 256-point STFT measured 0.001542 s on GPU versus 0.014118 s through the CPU baseline on this host; this is a local visualization microbenchmark, not a receiver/FEC throughput claim.
 
 ## Implementation phases
 
@@ -187,6 +190,96 @@ L1/L2/L4 are nonzero, as expected for a suite containing structured negatives, s
 - The GUI integration test now writes its negative fixture under pytest's temporary directory. Root `test_qpsk_cfo.py` still writes tracked `test_16qam_cfo.wav` when imported and remains outside configured `tests/` collection.
 - Existing docs contain stale implementation claims. Use source/runtime evidence and this progress record to distinguish current behavior from the planned beta.
 - Representative-corpus status (2026-09-29): added `tools/corpus` schema/validator, hash-checked production-path ingestion, seeded T1 impairment instrument, calibration/held-out invocation audit firewall, and schema-versioned evaluator/tuning proposal path. Baseline `python -m tools.corpus.evaluate --tier T1 --split calibration` completed with no committed T1 captures; all applicable gates were `INSUFFICIENT_POWER` or `NOT_MEASURABLE`. The T2 corpus is **PARTIAL (1 capture)**: a CC-BY-4.0 Zenodo SigMF downlink recording (record 13371136), checksum-verified and successfully loaded through the ordinary production path. Its source does not independently establish family, symbol rate, SNR, FEC, or transmitted bits, so it contributes no representative accuracy, negative-confidence, or PRD gate metric. T0/T1/T2 are never merged; T1 reports `NOT_REPRESENTATIVE`. No native estimator or receiver threshold/constant was changed. Representative Phase 3/4 validation remains blocked on a diverse set of independently documented T2 captures.
+
+## GPU stage acceleration (2026-09-30)
+
+- Added optional CuPy CUDA kernels behind the existing `compute_backend`
+  contract. A CUDA request now performs post-lock PSK/QAM and configured FSK
+  decisions/LLRs, K=7 rate-1/2 `(171,133)` Viterbi ACS/traceback, zero-syndrome
+  RS screening, and sliding bit/LLR correlation. GUI PSD/STFT remains CUDA
+  accelerated as before. A forced GPU request still fails when CUDA is absent;
+  `auto` retains CPU only for stages without a validated CUDA implementation.
+- Native carrier/timing acquisition remains authoritative; RS nonzero-syndrome
+  correction remains native CPU; LDPC, deinterleaving, CRC/framing, differential
+  PSK, and GMSK/GFSK are not represented as GPU accelerated.
+- On the local RTX 3050 Laptop GPU, focused CUDA vectors passed: noiseless K=7
+  recovery, receiver LLR sign contract, CPU/GPU correlation evidence parity,
+  and clean/corrupt RS syndrome controls. `pytest` completed 67 focused tests
+  in 6.92 s: acceleration, GPU measurement/stage, receiver, FEC, native Phase
+  5, framing, pipeline, and CLI tests. An exploratory 65,536-symbol single-
+  stream Viterbi timing measured CPU 0.030760 s and CUDA 0.038264 s; the CUDA
+  kernel executes correctly but is not a speedup for this inherently serial,
+  single-stream workload. No general FEC speedup claim is made.
+
+## GNU Radio shared processing and 10 kS/s default (2026-09-30)
+
+- The shared production workflow now routes every ordinary GUI, CLI, and Demo
+  import (WAV, SigMF, or explicitly described raw IQ) through GNU Radio. It
+  normalizes the selected analysis channel to complex64, runs File Source,
+  optional rotator/FIR low-pass/rational resampler, and File Sink, then passes
+  the result to the existing analysis pipeline. With no configured transform,
+  it remains an auditable GNU Radio pass-through. GNU Radio runs in its own
+  compatible Python runtime and is a required normal-processing dependency.
+- Raw-IQ GUI/CLI defaults now present 10,000 samples/s. This value is recorded
+  as `ASSUMED` (`cli_default_10ksps`/GUI default), never as measured metadata;
+  CLI users can set `--sample-rate-status known` for documented acquisition
+  metadata.
+- Local GNU Radio 3.10.12 sidecar validation resampled a 20 kS/s complex64
+  control to approximately 10 kS/s and confirmed provenance/rate status through
+  the shared workflow.
+- Optimized ordinary GNU Radio import without bypassing the flowgraph: runtime
+  discovery is cached per configured interpreter, scheduler buffer requests are
+  131,072 complex items, and little-endian `complex64` or `int16` I/Q input is
+  streamed directly into GNU Radio rather than first being staged as a temporary
+  complex64 input. On this host, the runtime probe measured 0.139 s cold and
+  13 microseconds cached; a 128 MB complex64 pass-through measured 309 MB/s and
+  the direct-CF32 workflow (including output materialization) measured 255 MB/s.
+  These are local microbenchmarks, not the PRD's end-to-end performance gate.
+
+## Phase 3 fractional timing and low-offset robustness (2026-09-30)
+
+- Constellation sampling now interpolates at the estimated fractional samples
+  per symbol rather than rounding each interval to an integer. Timing-phase
+  selection also considers constellation occupancy when fit errors are close,
+  avoiding selections supported by just one occupied point. Estimated carrier
+  offsets producing fewer than four cycles across the analysis window are not
+  applied as an exact derotation; they are below this preview's usable
+  frequency resolution and were smearing the observed constellation.
+- Added a deterministic BPSK regression at 6.4 samples/symbol with AWGN and
+  carrier offset. Focused `tests/test_phase3_native.py` and
+  `tests/test_phase4_native.py`: **43 passed**.
+- On the downloaded, source-labeled indoor-jamming BPSK segment, the leading
+  production candidate changed from 8PSK (score 0.773359) to BPSK (score
+  0.993749). It remains `HYPOTHESIS_UNVERIFIED`; sync and FEC ran, but frame
+  recovery failed and no payload was verified. This is a single-segment
+  calibration result, not a representative accuracy claim. CAMRAS stays
+  unlabeled and is not included in accuracy metrics.
+- Phase 3 remains **In progress**: independent multi-class labeled captures
+  and representative held-out evidence are still missing.
+
+## Experimental modulation ML training (2026-09-30)
+
+- Added optional `ml` dependencies and `tools/train_modulation_ml.py`. The
+  offline trainer generates six classes (BPSK, QPSK, 8PSK, 16QAM, 64QAM,
+  2FSK), extracts normalized amplitude, phase-increment, spectral, and moment
+  features, and fits a 400-tree ExtraTrees model. Synthetic data include
+  randomized SNR, CFO, phase, and samples-per-symbol. The source-labeled real
+  BPSK segment is excluded from fitting and used only for a separate transfer
+  check. The production hand-scored classifier has not been replaced.
+- Run: `uv sync --extra ml`, then
+  `uv run --extra ml python tools/train_modulation_ml.py --per-class 1200`.
+  Training produced 7,200 synthetic windows with a stratified 75/25 split.
+  Held-out synthetic balanced accuracy: **0.8389**. Per-class F1: BPSK .910,
+  QPSK .778, 8PSK .761, 16QAM .795, 64QAM .793, 2FSK 1.000. Confusions cluster
+  between neighboring PSK/QAM orders. The separate real-capture check predicted
+  BPSK on all 32 sampled windows; these are one recording/session, not 32
+  independent captures.
+- Local artifacts: `data/dataset_batches/ml/` (ignored by Git): model
+  `synthetic_modulation_extratrees.joblib` and full metrics
+  `training_report.json`. This is experimental synthetic-set performance only;
+  no independent real multi-class accuracy, payload evidence, or production
+  integration is claimed. Real-world transfer and new independently labeled
+  captures remain required.
 
 ## Next implementation task
 

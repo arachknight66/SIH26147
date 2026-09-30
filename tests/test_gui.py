@@ -126,6 +126,27 @@ def test_open_file_dialog_wiring_complex_iq(tmp_path):
                     assert not any("heuristic" in d.message.lower() for d in recording.diagnostics)
 
 
+@pytest.mark.skipif(not HAS_QT, reason="Qt not available")
+def test_uppercase_wav_extension_uses_wav_import_path(tmp_path):
+    import wave
+    from PySide6.QtWidgets import QApplication
+
+    wav_path = tmp_path / "capture.WAV"
+    with wave.open(str(wav_path), "wb") as wf:
+        wf.setnchannels(1)
+        wf.setsampwidth(2)
+        wf.setframerate(44100)
+        wf.writeframes(np.zeros(100, dtype=np.int16).tobytes())
+    app = QApplication.instance() or QApplication([])
+    window = MainWindow()
+    with patch("signal_analysis.gui.QFileDialog.getOpenFileName", return_value=(str(wav_path), "")):
+        with patch.object(window, "update_plots"):
+            with patch.object(window.sidebar, "update_metadata") as update:
+                window.open_file()
+                _wait_for_analysis(app, window)
+    assert update.call_args[0][0].source_format is SourceFormat.WAV
+
+
 def _minimal_pipeline_tree():
     recording = SignalRecording(np.zeros(8, np.complex64), SourceFormat.RAW_IQ, "complex64", "complex_iq",
         MetadataValue(1.0, "test", MetadataStatus.KNOWN), MetadataValue(None, "test", MetadataStatus.MISSING), {}, [])

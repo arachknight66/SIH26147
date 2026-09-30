@@ -57,6 +57,20 @@ def test_supported_linear_families_and_rate_on_held_out_seeds(kind, seed):
     assert abs(result.carrier_offset.value - 0.025) <= max(result.carrier_offset.uncertainty, 0.002)
 
 
+def test_fractional_samples_per_symbol_bpsk_is_sampled_without_integer_drift():
+    rng = np.random.default_rng(577)
+    symbol_count = 5000
+    symbols = np.exp(1j * np.pi * rng.integers(2, size=symbol_count)).astype(np.complex64)
+    samples_per_symbol = 6.4
+    positions = np.arange(int((symbol_count - 2) * samples_per_symbol))
+    indices = np.floor(positions / samples_per_symbol).astype(np.int64)
+    values = symbols[indices] * np.exp(2j * np.pi * 0.025 * positions)
+    result = analyze_window(np.ascontiguousarray(_awgn(values, 15, rng), dtype=np.complex64), config=_config())
+
+    assert result.modulation_candidates[0].label == "BPSK"
+    assert result.rate_candidates[0].samples_per_symbol == pytest.approx(samples_per_symbol, abs=0.1)
+
+
 @pytest.mark.parametrize("states", [2, 4, 8])
 def test_fsk_family_tone_clustering_and_rate(states):
     result = analyze_window(_fsk_signal(states, 700 + states), config=_config())

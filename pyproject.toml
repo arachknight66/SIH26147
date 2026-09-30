@@ -24,6 +24,12 @@ gui = [
 test = [
   "pytest>=8,<10",
 ]
+gpu = [
+    "cupy-cuda13x>=14,<15",
+]
+ml = [
+  "scikit-learn>=1.7,<2",
+]
 
 [project.scripts]
 sih26147 = "signal_analysis.cli:run_cli"

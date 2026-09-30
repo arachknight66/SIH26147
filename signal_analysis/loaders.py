@@ -18,6 +18,8 @@ class RawIQConfig:
     endian: str  # 'little' or 'big'
     sample_rate_hz: Optional[float] = None
     center_frequency_hz: Optional[float] = None
+    sample_rate_source: str = "user_input"
+    sample_rate_status: MetadataStatus = MetadataStatus.KNOWN
 
 def _get_numpy_dtype(config: RawIQConfig) -> np.dtype:
     """Map RawIQConfig to numpy dtype."""
@@ -96,7 +98,11 @@ class RawIQReader:
         
         # Metadata handling
         if self.config.sample_rate_hz is not None:
-            sr = MetadataValue(self.config.sample_rate_hz, "user_input", MetadataStatus.KNOWN)
+            sr = MetadataValue(
+                self.config.sample_rate_hz,
+                self.config.sample_rate_source,
+                self.config.sample_rate_status,
+            )
         else:
             sr = MetadataValue(None, "user_input", MetadataStatus.MISSING)
             

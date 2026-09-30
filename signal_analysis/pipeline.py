@@ -23,6 +23,12 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     """
     if config is None:
         config = {}
+
+    requested_backend = str(config.get("compute_backend", "cpu")).lower()
+    if requested_backend != "cpu":
+        from .acceleration import require_supported_backend
+        from .models import Diagnostic, Severity
+        capability = require_supported_backend(requested_backend)
         
     # Default Result State
     res = PipelineResult(
@@ -38,6 +44,13 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
         framing_status=PipelineStageStatus.NOT_ATTEMPTED,
         frame_structure=None
     )
+    if requested_backend == "auto":
+        res = PipelineResult(**{**res.__dict__, 'diagnostics': [Diagnostic(
+            Severity.INFO,
+            'GPU_ACCELERATION_AUTO',
+            'GPU capability was probed; CUDA is used for supported decision, FEC, and correlation kernels while unsupported stages remain native CPU.',
+            capability.reason,
+        )]})
     
     # --- Stage 2: Hypothesis ---
     res = PipelineResult(**{**res.__dict__, 'hypothesis_status': PipelineStageStatus.COMPLETED})
@@ -61,6 +74,17 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
         'all_hypotheses': hyps,
         'parameter_analysis': analysis_summary(parameter_analysis),
     })
+    if parameter_analysis.processed_samples < len(rec_1d.samples):
+        from .models import Diagnostic, Severity
+        res = PipelineResult(**{
+            **res.__dict__,
+            'diagnostics': res.diagnostics + [Diagnostic(
+                Severity.INFO,
+                'ANALYSIS_WINDOW_LIMITED',
+                'Parameter/modulation analysis used a bounded leading window; full recording coverage is not implied.',
+                f"processed={parameter_analysis.processed_samples}; source={len(rec_1d.samples)}",
+            )],
+        })
     
     if not hyps:
         res = PipelineResult(**{**res.__dict__, 'hypothesis_status': PipelineStageStatus.FAILED})
@@ -97,7 +121,7 @@ def run_full_pipeline(recording: SignalRecording, config: Dict[str, Any] = None)
     
     # --- Stage 5: Correlation & Framing ---
     patterns = config.get("sync_patterns", BUILTIN_SYNC_WORDS)
-    matches = correlate_sync_words(final_bits, final_llrs, patterns)
+    matches = correlate_sync_words(final_bits, final_llrs, patterns, backend=requested_backend)
     
     frame_structures = assemble_frames(
         final_bits,

@@ -8,7 +8,7 @@ POLY_1 = 0o171
 POLY_2 = 0o133
 K = 7
 
-def viterbi_decode_soft(deint: DeinterleavingResult, traceback_depth: int = 35) -> FECDecodeResult:
+def viterbi_decode_soft(deint: DeinterleavingResult, traceback_depth: int = 35, *, backend: str = "cpu") -> FECDecodeResult:
     """
     Soft-decision Viterbi decoding using LLRs from Phase 3.
     POLY_1 = 171 (octal) -> 1111001 (binary)
@@ -22,6 +22,24 @@ def viterbi_decode_soft(deint: DeinterleavingResult, traceback_depth: int = 35) 
             corrected_bit_fraction=0.0, decode_success=False,
             codec_name="Convolutional(K=7, R=1/2)", pre_correction_metric=0.0,
             diagnostics=[Diagnostic(Severity.WARNING, "VITERBI_RESIDUAL_LLR", "Input contains one residual coded LLR; no padding was applied.", "residual_llrs=1")],
+        )
+
+    from .acceleration import should_use_gpu
+    if should_use_gpu(backend):
+        from .gpu_dsp import gpu_viterbi_k7_r12
+        decoded_bits, margin = gpu_viterbi_k7_r12(llrs)
+        diagnostics = [Diagnostic(
+            Severity.INFO, "GPU_VITERBI_K7_R12",
+            "CUDA executed the K=7 rate-1/2 add-compare-select and traceback kernel.",
+            f"symbols={len(llrs) // 2}",
+        )]
+        if margin < 1.0:
+            diagnostics.append(Diagnostic(Severity.WARNING, "VITERBI_LOW_MARGIN", "Path metric margin is dangerously low", f"margin={margin:.2f}"))
+        return FECDecodeResult(
+            decoded_bits=decoded_bits, corrected_bit_count=0,
+            corrected_bit_fraction=0.0, decode_success=True,
+            codec_name="Convolutional(K=7, R=1/2; 171,133; CUDA)",
+            pre_correction_metric=margin, diagnostics=diagnostics,
         )
 
     native_result = decode_viterbi_k7_r12(llrs)

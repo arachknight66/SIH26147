@@ -100,3 +100,21 @@ def test_pipeline_synthetic_end_to_end():
     assert res.framing_status == PipelineStageStatus.COMPLETED
     assert res.frame_structure is not None
     assert res.frame_structure.header_match.pattern.name == "HDLC_FLAG"
+
+
+def test_pipeline_reports_bounded_analysis_coverage():
+    rng = np.random.default_rng(7)
+    recording = SignalRecording(
+        samples=np.ascontiguousarray((rng.normal(size=4096) + 1j * rng.normal(size=4096)).astype(np.complex64)),
+        source_format=SourceFormat.RAW_IQ,
+        original_dtype="complex64",
+        semantic_type="complex_iq",
+        sample_rate_hz=MetadataValue(1e6, "test", MetadataStatus.KNOWN),
+        center_frequency_hz=MetadataValue(0, "test", MetadataStatus.KNOWN),
+        provenance={}, diagnostics=[],
+    )
+
+    result = run_full_pipeline(recording, {"analysis_sample_limit": 512})
+
+    assert result.parameter_analysis["processed_samples"] == 512
+    assert any(d.code == "ANALYSIS_WINDOW_LIMITED" for d in result.diagnostics)

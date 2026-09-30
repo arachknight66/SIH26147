@@ -39,12 +39,18 @@ def run_cli():
     parser.add_argument("input", help="Path to input file or directory")
     parser.add_argument("--output", choices=["json", "text"], default="json", help="Output format")
     parser.add_argument("--wav-stereo-mode", choices=["unresolved", "stereo_real", "stereo_iq"], default="unresolved", help="Stereo interpretation for WAV files")
-    parser.add_argument("--raw-dtype", help="Raw IQ dtype (requires --sample-rate-hz)")
+    parser.add_argument("--raw-dtype", help="Raw IQ dtype (required for a raw input)")
     parser.add_argument("--raw-iq-order", choices=["iq", "qi"], default="iq", help="Raw real-pair order")
     parser.add_argument("--raw-endian", choices=["little", "big"], default="little", help="Raw IQ byte order")
-    parser.add_argument("--sample-rate-hz", type=float, help="Raw IQ sample rate in Hz")
+    parser.add_argument("--sample-rate-hz", type=float, default=10_000.0, help="Raw IQ sample rate in Hz (default: 10000; recorded as an assumption)")
+    parser.add_argument("--sample-rate-status", choices=["assumed", "known"], default="assumed", help="Whether the supplied raw sample rate is an assumption or acquisition metadata")
+    parser.add_argument("--gnuradio-preprocess", action="store_true", help="Apply configured GNU Radio frequency/filter/resampling settings; GNU Radio pass-through is otherwise used by default")
+    parser.add_argument("--gnuradio-output-rate-hz", type=float, default=10_000.0, help="GNU Radio output sample rate in Hz (default: 10000)")
+    parser.add_argument("--gnuradio-frequency-shift-hz", type=float, default=0.0, help="GNU Radio frequency translation in Hz before analysis")
+    parser.add_argument("--gnuradio-lowpass-cutoff-hz", type=float, help="Optional GNU Radio low-pass cutoff in Hz before resampling")
     parser.add_argument("--center-frequency-hz", type=float, default=0.0, help="Raw IQ center frequency in Hz")
     parser.add_argument("--fec-profile", default="UNCODED", help="Explicit FEC profile for the production pipeline")
+    parser.add_argument("--compute-backend", choices=["cpu", "auto", "gpu"], default="cpu", help="GPU uses implemented CUDA stages; unavailable profiles remain explicit and GPU never silently downgrades")
     parser.add_argument(
         "--frame-profiles",
         type=Path,
@@ -54,6 +60,8 @@ def run_cli():
     
     # We defer these imports so we don't accidentally import GUI stuff at module load
     from .loaders import RawIQConfig
+    from .models import MetadataStatus
+    from .gnuradio import GNUradioPreprocessConfig
     from .release import build_run_metadata
     from .workflow import AnalysisRequest, run_production_analysis
     
@@ -82,21 +90,35 @@ def run_cli():
         try:
             raw_config = None
             if fpath.suffix.lower() not in {".wav"} and not str(fpath).lower().endswith(".sigmf-meta"):
-                if args.raw_dtype is None or args.sample_rate_hz is None:
-                    raise ValueError("raw IQ input requires --raw-dtype and --sample-rate-hz")
+                if args.raw_dtype is None:
+                    raise ValueError("raw IQ input requires --raw-dtype")
                 raw_config = RawIQConfig(
                     dtype=args.raw_dtype,
                     sample_rate_hz=args.sample_rate_hz,
                     center_frequency_hz=args.center_frequency_hz,
                     iq_order=args.raw_iq_order.upper(),
                     endian=args.raw_endian,
+                    sample_rate_source="cli_argument" if args.sample_rate_status == "known" else "cli_default_10ksps",
+                    sample_rate_status=MetadataStatus.KNOWN if args.sample_rate_status == "known" else MetadataStatus.ASSUMED,
+                )
+            gnuradio_preprocess = None
+            if args.gnuradio_preprocess:
+                if raw_config is None:
+                    raise ValueError("--gnuradio-preprocess frequency/filter/resampling options are available only for raw IQ input")
+                gnuradio_preprocess = GNUradioPreprocessConfig(
+                    input_sample_rate_hz=args.sample_rate_hz,
+                    output_sample_rate_hz=args.gnuradio_output_rate_hz,
+                    frequency_shift_hz=args.gnuradio_frequency_shift_hz,
+                    lowpass_cutoff_hz=args.gnuradio_lowpass_cutoff_hz,
                 )
             outcome = run_production_analysis(AnalysisRequest(
                 path=fpath,
                 wav_stereo_mode=args.wav_stereo_mode,
                 raw_iq_config=raw_config,
+                gnuradio_preprocess=gnuradio_preprocess,
                 pipeline_config={
                     "fec_profile": args.fec_profile,
+                    "compute_backend": args.compute_backend,
                     **({"frame_profiles": frame_profiles} if frame_profiles is not None else {}),
                 },
                 origin="cli",

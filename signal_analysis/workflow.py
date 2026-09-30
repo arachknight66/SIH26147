@@ -10,6 +10,7 @@ from typing import Any
 from .loaders import RawIQConfig, RawIQReader, WavReader, read_sigmf
 from .models import SignalRecording
 from .pipeline import run_full_pipeline
+from .gnuradio import GNUradioPreprocessConfig, preprocess_direct_raw_iq, preprocess_recording
 
 
 class WorkflowStatus(Enum):
@@ -24,6 +25,8 @@ class AnalysisRequest:
     path: Path
     wav_stereo_mode: str = "unresolved"
     raw_iq_config: RawIQConfig | None = None
+    gnuradio_preprocess: GNUradioPreprocessConfig | None = None
+    use_gnuradio: bool = True
     pipeline_config: dict[str, Any] = field(default_factory=dict)
     origin: str = "file"
 
@@ -43,12 +46,21 @@ def load_recording(request: AnalysisRequest) -> SignalRecording:
     path = request.path
     suffix = path.suffix.lower()
     if suffix == ".wav":
-        return WavReader(str(path), mode=request.wav_stereo_mode).read()
-    if str(path).lower().endswith(".sigmf-meta"):
-        return read_sigmf(str(path))
-    if request.raw_iq_config is None:
-        raise ValueError("raw IQ input requires explicit import parameters")
-    return RawIQReader(str(path), request.raw_iq_config).read()
+        recording = WavReader(str(path), mode=request.wav_stereo_mode).read()
+    elif str(path).lower().endswith(".sigmf-meta"):
+        recording = read_sigmf(str(path))
+    else:
+        if request.raw_iq_config is None:
+            raise ValueError("raw IQ input requires explicit import parameters")
+        if (
+            request.use_gnuradio
+            and request.raw_iq_config.dtype in {"complex64", "int16"}
+            and request.raw_iq_config.iq_order.upper() == "IQ"
+            and request.raw_iq_config.endian == "little"
+        ):
+            return preprocess_direct_raw_iq(path, request.raw_iq_config, request.gnuradio_preprocess)
+        recording = RawIQReader(str(path), request.raw_iq_config).read()
+    return preprocess_recording(recording, request.gnuradio_preprocess) if request.use_gnuradio else recording
 
 
 def run_production_analysis(

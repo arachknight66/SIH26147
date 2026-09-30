@@ -1,0 +1,7 @@
+{
+  "description": "Complex IQ as stereo PCM WAV: channel 1 is I, channel 2 is Q.",
+  "source_sigmf_data": "camras-2022_08_07_08_31_34_2260.830MHz_0.5Msps_ci16_le.sigmf-data",
+  "source_format": "signed int16 little-endian interleaved I/Q",
+  "sample_rate_hz": 500000,
+  "sample_rate_status": "KNOWN from SigMF metadata"
+}

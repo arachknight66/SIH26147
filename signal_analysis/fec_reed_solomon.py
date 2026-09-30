@@ -366,7 +366,7 @@ class ReedSolomon:
             
         return corrected[:self.k], v, True, diagnostics
 
-def decode_reed_solomon(deint: DeinterleavingResult, n: int = 255, k: int = 223) -> FECDecodeResult:
+def decode_reed_solomon(deint: DeinterleavingResult, n: int = 255, k: int = 223, *, backend: str = "cpu") -> FECDecodeResult:
     """Decode complete RS codewords natively; residual bits are never padded."""
     bits = np.ascontiguousarray(deint.bits, dtype=np.uint8)
     if bits.size % 8:
@@ -376,16 +376,48 @@ def decode_reed_solomon(deint: DeinterleavingResult, n: int = 255, k: int = 223)
             pre_correction_metric=0.0,
             diagnostics=[Diagnostic(Severity.WARNING, "RS_RESIDUAL_BITS", "Input is not byte aligned; no padding was applied.", f"residual_bits={bits.size % 8}")],
         )
+    packed = np.packbits(bits)
+    from .acceleration import should_use_gpu
+    if should_use_gpu(backend) and packed.size and packed.size % n == 0:
+        try:
+            from .gpu_dsp import gpu_rs_zero_syndrome
+            valid = gpu_rs_zero_syndrome(packed, int(n), int(k))
+            if bool(valid.all()):
+                decoded_bytes = packed.reshape(-1, n)[:, :k].reshape(-1)
+                return FECDecodeResult(
+                    decoded_bits=np.unpackbits(decoded_bytes), corrected_bit_count=0,
+                    corrected_bit_fraction=0.0, decode_success=True, codec_name=f"RS({n},{k}; CUDA syndrome)",
+                    pre_correction_metric=0.0,
+                    diagnostics=[Diagnostic(
+                        Severity.INFO, "GPU_RS_SYNDROME",
+                        "CUDA verified zero syndromes for complete RS codewords; no correction was required.",
+                        f"codewords={len(valid)}; n={n}; k={k}",
+                    )],
+                )
+            gpu_diagnostic = Diagnostic(
+                Severity.INFO, "GPU_RS_SYNDROME",
+                "CUDA screened RS syndromes; non-zero words were passed to native CPU correction.",
+                f"clean_codewords={int(valid.sum())}; total_codewords={len(valid)}",
+            )
+        except ValueError as exc:
+            gpu_diagnostic = Diagnostic(
+                Severity.INFO, "GPU_RS_STAGE_NOT_APPLICABLE",
+                "Configured RS profile is outside the CUDA syndrome-screen kernel limits; native CPU decoder was retained.", str(exc),
+            )
+    else:
+        gpu_diagnostic = None
     native = require_native()
     config = native.ReedSolomonConfig()
     config.n = int(n)
     config.k = int(k)
-    native_result = native_decode_reed_solomon(np.packbits(bits), config=config)
+    native_result = native_decode_reed_solomon(packed, config=config)
     diagnostics = [
         Diagnostic(getattr(Severity, item.severity.name), item.code, item.message, item.evidence)
         for item in native_result.diagnostics
     ]
     decoded_bytes = np.asarray(native_result.decoded_bytes, dtype=np.uint8)
+    if gpu_diagnostic is not None:
+        diagnostics.insert(0, gpu_diagnostic)
     return FECDecodeResult(
         decoded_bits=np.unpackbits(decoded_bytes),
         corrected_bit_count=int(native_result.corrected_symbols) * 8,
