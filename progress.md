@@ -187,7 +187,7 @@ L1/L2/L4 are nonzero, as expected for a suite containing structured negatives, s
 - Some current tests assert UI labels or mock the decoder rather than verifying end-to-end payload recovery. Treat them as limited regression checks.
 - No validated `MACKAY_504_1008` matrix or genuine encoded concatenated Demo capture exists in this repository. LDPC therefore requires an explicit supplied matrix; the Demo catalog labels legacy recordings as structured fixtures instead of claiming validated concatenated FEC.
 - The native Viterbi profile is currently the fixed K=7, rate-1/2 `(171,133)` implementation. Puncturing/profile catalogues, erasure-aware RS, and bounded profile discovery remain Phase 5 work.
-- The GUI integration test now writes its negative fixture under pytest's temporary directory. Root `test_qpsk_cfo.py` still writes tracked `test_16qam_cfo.wav` when imported and remains outside configured `tests/` collection.
+- The GUI integration test writes its negative fixture under pytest's temporary directory. Root-level exploratory scripts were later removed during the 2026-09-30 repository cleanup; configured pytest collection is under `tests/`.
 - Existing docs contain stale implementation claims. Use source/runtime evidence and this progress record to distinguish current behavior from the planned beta.
 - Representative-corpus status (2026-09-29): added `tools/corpus` schema/validator, hash-checked production-path ingestion, seeded T1 impairment instrument, calibration/held-out invocation audit firewall, and schema-versioned evaluator/tuning proposal path. Baseline `python -m tools.corpus.evaluate --tier T1 --split calibration` completed with no committed T1 captures; all applicable gates were `INSUFFICIENT_POWER` or `NOT_MEASURABLE`. The T2 corpus is **PARTIAL (1 capture)**: a CC-BY-4.0 Zenodo SigMF downlink recording (record 13371136), checksum-verified and successfully loaded through the ordinary production path. Its source does not independently establish family, symbol rate, SNR, FEC, or transmitted bits, so it contributes no representative accuracy, negative-confidence, or PRD gate metric. T0/T1/T2 are never merged; T1 reports `NOT_REPRESENTATIVE`. No native estimator or receiver threshold/constant was changed. Representative Phase 3/4 validation remains blocked on a diverse set of independently documented T2 captures.
 
@@ -301,6 +301,19 @@ L1/L2/L4 are nonzero, as expected for a suite containing structured negatives, s
   check in a clean clone.
 - `git diff --check` and a local Markdown-link scan passed. No test suite was
   run for this documentation refresh.
+
+## Root artifact cleanup (2026-09-30)
+
+- Removed obsolete source-mutation scripts (`append*.py`, `fix_gui*.py`, and
+  `patch*.py`), the stale `gui_copy.txt` snapshot, `step0_output.txt`, and
+  standalone root-level exploratory tests that are outside configured pytest
+  collection. Removed their unused `dab_test.wav`, `test_16qam_cfo.wav`, and
+  `test_qpsk_cfo.wav` outputs.
+- Kept `test_clean_qpsk.wav` and `test_encoded.wav`, which are referenced by
+  configured GUI integration tests, and kept fixture generators used by the
+  repository's current Demo tooling.
+- Updated `agent.md` and this status record so setup guidance no longer warns
+  about removed file-mutating scripts. No test suite was run for cleanup.
 
 ## Next implementation task
 

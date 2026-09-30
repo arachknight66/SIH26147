@@ -47,7 +47,7 @@ The repository currently contains the Python prototype. The native architecture 
 - Use independent golden vectors and reference implementations for algorithm acceptance. Old Python output is a regression reference only where its correctness has been established.
 - Check recovered bits/payloads, not merely nonempty output, a green stage label, or a successful function return. Include wrong-profile and noise/unsupported cases.
 - Run relevant native tests, binding tests, and Python integration tests. Exercise the real decoder chain for end-to-end tests; mocks are appropriate only for isolated orchestration/UI behavior.
-- Do not run the old suite blindly in the working tree: `tests/test_gui_pipeline_integration.py` overwrites `dab_test.wav`, and root `test_qpsk_cfo.py` writes `test_16qam_cfo.wav` at import time. Isolate or repair these tests within the authorized task before running them.
+- Use the configured `tests/` suite for regression checks. Root-level exploratory scripts and generated outputs are not part of pytest collection; do not restore scripts that mutate project files as test setup.
 - Do not execute root `append*`, `fix_gui*`, or `patch*` scripts as setup; they mutate source files.
 - Update [progress.md](progress.md) with the actual changes, checks, outcomes, and remaining blockers after implementation tasks. Record skipped or unavailable checks explicitly.
 - Mark phases complete only when their acceptance criteria have evidence. Performance thresholds in the plan are targets until measured on recorded reference hardware.
