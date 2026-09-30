@@ -1,5 +1,9 @@
-numpy>=1.20.0
-scipy>=1.7.0
-PySide6>=6.0.0
-pyqtgraph>=0.13.0
-pytest>=7.0.0
+# Compatibility install for pip users. Prefer `uv sync` to honor uv.lock.
+# This installs the project with its GUI extra. GNU Radio is installed in a
+# separate compatible Python runtime; see README.md.
+-e .[gui]
+
+# Optional development and experimental ML extras:
+#   pip install -e ".[gui,test,ml]"
+# Optional CUDA extra (requires a compatible CUDA 13 host):
+#   pip install -e ".[gui,gpu]"

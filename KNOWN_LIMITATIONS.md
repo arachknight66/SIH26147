@@ -1,14 +1,17 @@
 # Known Limitations and Explicit Non-Goals
 
-The following are architectural non-goals and observed limitations of the current implementation. A stage completing, lock being reported, or frame candidate appearing is not proof that the inferred signal family or payload is correct.
+Current as of 2026-09-30. The following are architectural non-goals and observed
+limitations of the implementation. A stage completing, lock being reported,
+or frame candidate appearing is not proof that the inferred signal family or
+payload is correct.
 
 ## 1. OFDM and Multicarrier Signals
 **Limitation:** Signals such as DAB, DVB-T, LTE, and Wi-Fi are **unsupported**.
 **Behavior:** The legacy feature extractor has a coarse cyclic-prefix plausibility diagnostic, but it is not a reliable hard gate on the production native classifier/receiver. In the frozen v1 synthetic S6 OFDM-like negative stratum, 572/1,250 windows produced L1 modulation claims, 1,017/1,250 L2 receiver claims, 676/1,250 L4 frame claims, and **2/1,250 L5 strict frame claims**. The fixed-suite zero-confirmation PRD gate therefore **fails**; the repeated-symbol 64-point generator is not representative real RF. No specific OFDM mapping is decoded or validated.
 
 ## 2. Magic Metadata Inference
-**Limitation:** It is a physical impossibility to infer sample rate, center frequency, or timestamp natively from a flat array of `float32` complex IQ bytes.
-**Behavior:** The ordinary workflow rejects raw IQ input without an explicit `RawIQConfig`; it does not silently infer the byte format. For an accepted recording, absent time/frequency metadata is represented as `MISSING`, and calculations requiring an absolute sample rate must not present a guessed Hz value. A malformed WAV header is an import error, not a valid recording with inferred metadata.
+**Limitation:** Sample rate, center frequency, and timestamp are underdetermined from a flat array of complex IQ samples without external acquisition information.
+**Behavior:** Raw IQ requires an explicit `RawIQConfig`; the application does not infer the byte format. The GUI/CLI 10 kS/s default is an `ASSUMED` value, not measured or source metadata. For other absent values, metadata is `MISSING`; calculations must not present guessed absolute units as known. A malformed WAV header is an import error.
 
 ## 3. Blind Pseudo-Random De-interleaving
 **Limitation:** Seeded pseudo-random, diagonal, and convolutional transforms require an explicit profile or permutation; block dimensions may also be searched within a bounded grid as described below.
@@ -38,6 +41,38 @@ The frozen version-1 synthetic release suite contains 10,000 windows and produce
 
 ## 10. Windows Execution
 The `_native` CMake **MODULE** target already has the correct `LIBRARY DESTINATION signal_analysis` install rule under [CMake's artifact classification](https://cmake.org/cmake/help/latest/command/install.html#installing-targets). This is a static check only: no Windows build, wheel install, or GUI import transcript has been captured, and the cross-platform packaging gate remains open. The Windows runner's actual optional-package probe results also remain unobserved; the current probes log availability but do not link alternate implementations. See the [risk review](docs/windows_known_risks.md) and [CI runbook](docs/windows_ci_runbook.md).
+
+## 11. GNU Radio runtime
+
+**Limitation:** GNU Radio is an external runtime, not a dependency installed by
+the Python project extras. Ordinary GUI, CLI, and Demo imports require a
+compatible GNU Radio Python interpreter.
+**Behavior:** The adapter discovers a runtime or uses
+`SIH_GNURADIO_PYTHON`. Without a working runtime, ordinary processing fails
+with an explicit preprocessing error; there is no silent bypass. The current
+flowgraph supports pass-through, frequency translation, low-pass filtering,
+and rational resampling. Platform-specific installation and clean-machine
+validation remain open; see the README and Windows runbook.
+
+## 12. Experimental ML model
+
+**Limitation:** The ExtraTrees model was trained on generated signals, not a
+representative measured dataset, and is not used by the production classifier.
+**Evidence:** A seeded synthetic holdout scored 0.8389 balanced accuracy across
+six classes. The separate real-data check predicted BPSK for 32 windows from a
+single source-labeled capture. This does not establish real multi-class
+accuracy or independent capture performance. The training script, model, and
+report are under `tools/train_modulation_ml.py` and
+`data/dataset_batches/ml/`.
+
+## 13. IQ WAV assets
+
+The dataset WAV files in `data/` store I and Q as separate channels and are
+intended for signal-processing tools, not audio playback. The BPSK source rate
+is unknown; its WAV uses a 10 kS/s container placeholder documented in its
+sidecar. Use the accompanying raw `.iq` file when the consumer can accept
+complex float32 samples and an externally supplied rate. Source attribution
+and formats are listed in [dataset assets](docs/dataset_assets.md).
 
 ### Native estimation and receiver limitations
 

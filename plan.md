@@ -6,7 +6,12 @@ Preserve the Qt application, plotting workflow, Demo Mode, and Python-facing dat
 
 **Coverage:** configured decoding across all required families, with automatic inference restricted to documented profiles. Broader radio variants remain ambiguous when the evidence cannot distinguish them.
 
-## Current versus target architecture
+## Starting baseline versus target architecture
+
+The `Current` column below records the repository state when this migration
+plan was written. It is historical context, not a description of the present
+checkout. Use the dated snapshot and phase gates that follow for current
+implementation status.
 
 | Current | Target |
 |---|---|
@@ -17,6 +22,21 @@ Preserve the Qt application, plotting workflow, Demo Mode, and Python-facing dat
 | All five demodulators run; only first result is accepted | Bounded candidate evaluation with evidence-based arbitration |
 | Unconditional Viterbi → block search → RS | Configurable processing chains, including uncoded and unknown alternatives |
 | Demo fixtures contain misleading “concatenated” examples | Deterministic captures processed through the production path; separate ground truth |
+
+## Current implementation snapshot (2026-09-30)
+
+| Area | Implemented now | Still open |
+|---|---|---|
+| Production workflow | GUI, CLI, and Demo share a Python request/job path; GNU Radio preprocessing is used for ordinary imports | Ordinary jobs still materialize an in-memory `SignalRecording`; native chunked-source execution is not the ordinary path |
+| Native compute | C++20/pybind11 API v5 covers source primitives, preprocessing/spectra, estimation, configured receivers, bitstream transforms, Viterbi, RS, LDPC, correlation, and CRC | Advertised profile coverage, full streaming scale, platform packaging, and several specialized decoders remain incomplete |
+| GPU | Optional CuPy CUDA kernels cover the operations listed in [GPU acceleration](docs/gpu_acceleration.md) | GPU is not a general speedup; many stages remain CPU-native |
+| ML experiment | Standalone ExtraTrees trainer and committed model/report; synthetic six-class holdout balanced accuracy 0.8389 | Synthetic score only; one real BPSK capture is a transfer check, and ML is not used by production classification |
+| Dataset evidence | Several WAV/IQ assets and provenance notes are committed | Independent labeled multi-class T2 captures and real-RF negative evidence are missing |
+| Release validation | Linux native/functional evidence and a completed frozen v1 synthetic suite exist | Frozen v1 had 2 L5 events; post-fix full rerun, Windows run, reference-laptop gates, clean installs, and ordinary-workflow 1-GB evidence remain open |
+
+All seven phases remain **In progress**. Exact evidence and caveats are in
+[progress.md](progress.md); do not infer phase completion from the presence of
+planned files or interfaces.
 
 **Measured bottlenecks:** profiling the existing 35,680-sample BPSK demo took approximately 3.0 seconds: Viterbi 1.9 seconds, synchronization attempts 0.55 seconds, and framing/CRC 0.41 seconds. These are indicative profiled timings, not release benchmarks. Additional scaling problems include repeated rate estimation, repeated interleaver FFTs, repeated CRC prefix calculations, and full-array copies during CLI serialization. FFTs already execute natively through NumPy/SciPy.
 

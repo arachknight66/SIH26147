@@ -1,6 +1,6 @@
 # SIH26147 progress
 
-Last updated: 2026-09-29.
+Last updated: 2026-09-30.
 
 ## Current state
 
@@ -274,16 +274,37 @@ L1/L2/L4 are nonzero, as expected for a suite containing structured negatives, s
   between neighboring PSK/QAM orders. The separate real-capture check predicted
   BPSK on all 32 sampled windows; these are one recording/session, not 32
   independent captures.
-- Local artifacts: `data/dataset_batches/ml/` (ignored by Git): model
+- Model artifacts are committed under `data/dataset_batches/ml/`: model
   `synthetic_modulation_extratrees.joblib` and full metrics
   `training_report.json`. This is experimental synthetic-set performance only;
   no independent real multi-class accuracy, payload evidence, or production
   integration is claimed. Real-world transfer and new independently labeled
   captures remain required.
 
+## WAV exports and documentation refresh (2026-09-30)
+
+- Added stereo WAV exports for the labeled BPSK segment, two CAMRAS recordings,
+  and the Intelsat 37e recording. Left/right channels carry I/Q. CAMRAS rates
+  (500 kS/s) and the Intelsat rate (500 samples/s) come from SigMF metadata. The
+  BPSK source rate is unknown; its WAV header uses an explicitly documented
+  10 kS/s placeholder, with the raw `.iq` file retained alongside it.
+- The WAVs, per-file JSON sidecars, `.iq` file, trained model, and training
+  report are committed. The incomplete 947 MB `w1.mat` download remains local
+  and was not committed.
+- Refreshed README, architecture, plan status, PRD status, changelog, known
+  limitations, and pip compatibility requirements to match the shared GNU
+  Radio workflow, selected CUDA coverage, ML experiment, committed dataset
+  assets, and current open release gates. Dated forensic/CI reports remain
+  historical records and are not rewritten as new validation results.
+- Changed the trainer's default real-capture input to the committed `.iq` copy
+  so the documented training command also performs its real BPSK transfer
+  check in a clean clone.
+- `git diff --check` and a local Markdown-link scan passed. No test suite was
+  run for this documentation refresh.
+
 ## Next implementation task
 
-Implement and validate the [scoped structural L5 proposal](docs/negative_suite_s6_l5_root_cause.md) in a separate task with a positive control, then run the frozen S6 stratum and the full frozen suite before claiming a new gate outcome. Investigate the v1 suite-generator defects separately; a corrected suite requires a new version and a new fixed run, not post-hoc edits to v1. Obtain additional independently documented T2 captures—covering supported families, unsupported negatives, and independent truth—for representative Phase 3/4 validation. Continue Phase 4 tracking/equalization/profile work and Phase 5 matrix/puncturing/erasure/profile work. Run the reference-laptop performance suite, full ordinary-workflow streaming test, clean-machine installs, and Windows CI before closing the phase gates.
+The scoped structural L5 mitigation is implemented and has focused positive/negative evidence; the next release-validation step is to run the frozen S6 stratum and then the full frozen suite before changing the historical gate outcome. Investigate the v1 suite-generator defects separately; a corrected suite requires a new version and fixed run, not post-hoc edits to v1. Obtain independently documented T2 captures across supported families and unsupported negatives for representative Phase 3/4 validation. Continue Phase 4 tracking/equalization/profile work and Phase 5 matrix/puncturing/erasure/profile work. Run the reference-laptop performance suite, full ordinary-workflow streaming test, clean-machine installs, and Windows CI before closing the phase gates.
 
 ## Documentation reconciliation (2026-09-29)
 

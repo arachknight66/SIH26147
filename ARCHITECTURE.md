@@ -1,66 +1,127 @@
 # System Architecture
 
-## Migration status
+## Current shape
 
-The application currently has two explicit paths. Native API version 5 provides
-chunked raw-IQ/WAV sources, preprocessing, streaming statistics, PSD/STFT,
-spectral-band primitives, parameter estimation, modulation ranking, configured
-receiver profiles, configured bit transforms, correlation/CRC, RS, normalized
-min-sum LDPC, and the fixed Viterbi pilot through pybind11. Python retains
-orchestration, GUI models, plots, reporting, profile selection, and frame
-presentation. Legacy implementations remain importable for compatibility but
-the production pipeline uses native Phase 3–5 adapters.
-See `progress.md` for the exact validation boundary.
+Ordinary GUI, CLI, and Demo imports share `AnalysisRequest` and
+`run_production_analysis` in Python. The workflow imports a WAV, SigMF, or
+explicitly described raw-IQ recording, routes it through the GNU Radio sidecar
+flowgraph, then invokes the existing analysis pipeline. GNU Radio is an
+external runtime discovered by `signal_analysis.gnuradio`; set
+`SIH_GNURADIO_PYTHON` when it is not on the discovery path. GUI work runs in an
+`AnalysisJob`; Qt widgets are updated on the main thread.
 
-The signal analysis pipeline is divided into a sequential 6-layer architecture, tied together by a strict epistemic-status tracking model that propagates confidence across stage boundaries.
+The pybind11 extension exposes native API version 5. C++20 provides bounded
+recording-source readers, preprocessing, statistics, PSD/STFT, spectral-band
+analysis, parameter/modulation ranking, configured receiver and bitstream
+operations, Viterbi, RS, sparse-matrix LDPC, correlation, and CRC primitives.
+Python retains application orchestration, GUI models/plots, profile
+configuration, JSON reports, and frame presentation. The production pipeline
+uses native Phase 3–5 adapters, while older Python implementations remain for
+compatibility and tests. The currently available native bounded/streaming
+source API is not yet used end-to-end by ordinary GUI/CLI processing; that
+workflow still materializes an in-memory recording.
 
-## The Six-Layer Pipeline
+The standalone experimental ExtraTrees trainer at
+[`tools/train_modulation_ml.py`](tools/train_modulation_ml.py) is separate from
+the production classifier. Its model is trained on generated signals and has
+only a single-source BPSK transfer check; it is not used to rank production
+hypotheses.
 
-### Phase 1: Ingestion and Metadata (loaders.py)
-Reads `.wav`, `.sigmf-meta`, and raw `.iq` files into a unified `SignalRecording` object. Its explicit non-goal is guessing missing sample rates or center frequencies from bare IQ bytes—if the metadata isn't explicitly provided via SigMF or WAV headers, it is marked `MISSING` and the user is warned.
+See [progress.md](progress.md) for implementation evidence and open phase
+gates, [plan.md](plan.md) for the migration target, and
+[KNOWN_LIMITATIONS.md](KNOWN_LIMITATIONS.md) for observed boundaries.
 
-### Phase 2: Estimation and modulation ranking (C++ `estimation`, Python `analysis.py`)
-Measures SNR/bandwidth/CFO/rate candidates and ranks PSK, QAM, and FSK evidence. Unknown, ambiguous, and unsupported outcomes remain explicit.
-
-### Phase 3: Synchronization and demodulation (C++ `receiver`, Python `demodulation.py`)
-Runs configured carrier-line acquisition, matched filtering, fractional timing search, constellation/tone decisions, max-log LLR generation, and explicit phase/frequency ambiguity reporting. Mapping verification requires supplied reference evidence.
-
-### Phase 4: De-interleaving and FEC (C++ `bitstream`, Python `deinterleaving.py`, `fec_*.py`)
-Consumes Phase 3's `DemodulationResult` through configured native block,
-convolutional, diagonal, and seeded pseudo-random transforms. Native K=7
-Viterbi, RS, and configured sparse-matrix LDPC paths preserve residual input
-and decode failure as evidence. Blind recovery of arbitrary permutations,
-seeds, or LDPC matrices remains unsupported.
-
-### Phase 5: Frame Recovery (C++ `bitstream`, Python `framing.py`)
-Native correlation and CRC computation produce evidence for the lightweight
-Python frame presenter. A repeated header is required before a CRC-8 coincidence
-can elevate a frame candidate.
-
-### Cross-Cutting Layer: Epistemic Status Discipline
-Instead of silently substituting default values or best-effort guesses, every stage outputs explicit status badges, preventing "success theater" when the pipeline fails cleanly.
-
-## The Epistemic Status Taxonomy
-
-This taxonomy is the single most important concept in the codebase, guaranteeing that downstream tools (and the GUI) know *exactly* what state the data is in.
-
-*   `MetadataStatus`: Owned by Phase 1. States whether properties like sample rate are `KNOWN` (trusted), `INFERRED` (guessed from heuristics), or `MISSING`.
-*   `FeatureValidity`: Owned by Phase 2. Notes if calculated features are `VALID`, `COMPROMISED` (e.g., cumulants run on real-valued signals), or `INVALID`.
-*   `HypothesisStatus`: Owned by Phase 2/3. Ranges from `HYPOTHESIS_UNVERIFIED` (classifier guessed it) to `CONFIRMED` (Phase 3 successfully locked the PLL).
-*   `PipelineStageStatus`: The global progression flag (`NOT_ATTEMPTED`, `COMPLETED`, `FAILED`). A stage that correctly declines to run (e.g., Phase 3 on an OFDM signal) is `NOT_ATTEMPTED`, distinguishing it cleanly from a phase that tried to run but broke (`FAILED`).
-
-## Data Flow Diagram
+## Production data flow
 
 ```mermaid
 flowchart TD
-    Disk[Raw Files: .wav, .iq, .sigmf] --> Loader[Phase 1: loaders.py]
-    Loader -->|SignalRecording| Estimation[C++ estimation and modulation ranking]
-    Estimation -->|ModulationHypotheses| Sync[C++ ReceiverSession via demodulation.py]
-    Sync -->|DemodulationResult| Deint[C++ bitstream via deinterleaving.py]
-    Deint -->|DeinterleavingResult| FEC[C++ codecs via fec_concatenated.py]
-    FEC -->|FECDecodeResult| Framing[C++ correlation/CRC + framing.py]
-    Framing -->|FrameStructure| Final[PipelineResult]
-    
-    Final -.-> GUI[gui.py]
-    Final -.-> CLI[cli.py]
+    File[WAV / SigMF / described raw IQ] --> Import[Python source adapter]
+    Import --> GR[GNU Radio external flowgraph]
+    GR --> Record[SignalRecording in memory]
+    Record --> Estimate[C++ estimation / modulation ranking]
+    Estimate --> Receiver[C++ configured receiver]
+    Receiver --> Bitstream[C++ transforms and configured FEC]
+    Bitstream --> Frames[Native correlation / CRC evidence]
+    Frames --> Present[Python PipelineResult / frame presentation]
+    Present --> UI[Qt GUI]
+    Present --> CLI[JSON or text CLI]
 ```
+
+The diagrams and stage descriptions below describe implemented interfaces;
+supported profiles and validation boundaries are not implied by a stage's
+presence. See progress and limitations before claiming an acceptance gate.
+
+## Analysis stages
+
+### Import, metadata, and preprocessing
+
+`signal_analysis.loaders` parses WAV, SigMF, and explicit raw-IQ settings.
+`signal_analysis.workflow` sends ordinary imports through the external GNU
+Radio runner. The runner supports a file-source/sink pass-through and
+configured frequency translation, low-pass filtering, and rational
+resampling. Imported metadata is carried forward; configured output-rate
+values are marked as assumptions when they are not acquisition metadata. Raw
+IQ is not self-describing, and the 10 kS/s application default is explicitly
+`ASSUMED`.
+
+### Parameter and modulation analysis
+
+The native `estimation` component returns measurements, candidates, validity,
+and supporting evidence for implemented PSK, QAM, and FSK families. It can
+return unknown, ambiguous, or unsupported outcomes. Scores are hypotheses,
+not calibrated field probabilities. Fractional timing sampling and a
+low-frequency-resolution carrier-offset guard are present. No independent,
+representative multi-class real-RF calibration set is available.
+
+### Synchronization and demodulation
+
+The native `receiver` component supports configured receiver profiles,
+fractional timing search, acquisition, symbol decisions, and max-log LLRs.
+Lock and low EVM do not prove the hypothesized modulation or bit mapping.
+Phase/frequency aliases and mapping status remain separate evidence. Continuous
+tracking, adaptive multipath equalization, and generic CPM sequence detection
+are not implemented.
+
+### Deinterleaving, FEC, and framing
+
+The native `bitstream` operations apply configured transforms and expose
+residual input and diagnostics. Available codec operations include fixed
+K=7 rate-1/2 Viterbi, RS, and normalized min-sum LDPC with caller-supplied
+sparse matrices. There is no validated bundled `MACKAY_504_1008` matrix,
+punctured Viterbi catalogue, erasure-aware RS path, or general blind recovery
+of interleaver seeds/matrices.
+
+Exploratory sync/CRC matches are candidates. Profile-based CRC verification
+uses a predeclared header, algorithm, and payload boundary; confirmation also
+requires distinct observations and verified receiver mapping. The fix for the
+two historical negative-suite L5 cases has focused evidence, but the frozen
+S6 and complete 10,000-window suite have not been rerun under the revised
+predicate. The release zero-confirmation gate remains open/failed pending that
+run.
+
+## Optional acceleration
+
+The `gpu` extra supplies CUDA/CuPy implementations for GUI PSD/STFT, selected
+post-lock PSK/QAM and FSK operations, fixed K=7 Viterbi, zero-syndrome RS
+screening, and bitstream correlation. Native CPU code remains responsible for
+acquisition, RS correction, LDPC, CRC, and framing. GPU availability does not
+change evidence or confirmation rules. See [GPU acceleration](docs/gpu_acceleration.md).
+
+## Epistemic status
+
+The pipeline separates execution from scientific evidence:
+
+- **Metadata status** describes whether a value is known from a source, an
+  explicit assumption, estimated, or missing. Do not infer absolute rate or
+  frequency from bare IQ bytes.
+- **Feature validity** distinguishes usable measurements from compromised or
+  invalid features.
+- **Hypothesis status** records candidate/unknown/ambiguous outcomes.
+- **Stage status** records whether an operation was attempted, completed, or
+  failed. `COMPLETED` means the stage ran; it is not a correctness verdict.
+- **Mapping and frame validity** are tracked separately from receiver lock.
+  A confirmed frame requires configured, repeated CRC evidence and a verified
+  bit mapping; held-out validation remains a release requirement.
+
+Demo ground truth is held in `fixtures/demo/truth.json`, separate from
+production requests and reports. It is read only by the explicit reveal path.

@@ -2,6 +2,35 @@
 
 All notable changes to the SIH26147 Signal Analysis project will be documented in this file.
 
+## [Unreleased] - 2026-09-30
+
+### Added
+
+* Shared ordinary GUI/CLI/Demo preprocessing through an external GNU Radio
+  sidecar, with pass-through, frequency translation, low-pass filtering, and
+  rational resampling. The 10 kS/s raw-IQ default is explicitly `ASSUMED`.
+* Optional CUDA kernels for selected PSD/STFT, post-lock receiver decisions,
+  fixed K=7 Viterbi, RS zero-syndrome screening, and bitstream correlation.
+* Standalone experimental ExtraTrees training for six modulation classes,
+  with a committed model and synthetic holdout report. It is not connected to
+  the production classifier.
+* WAV I/Q assets, a raw complex-float `.iq` copy, and
+  [dataset provenance and encoding notes](docs/dataset_assets.md).
+* Phase 3 fractional timing interpolation and low-offset robustness changes;
+  the source-labeled BPSK segment now ranks BPSK first but remains an
+  unverified, single-segment result.
+
+### Validation limits
+
+* Synthetic ML holdout balanced accuracy is 0.8389. The real-data check covers
+  one source-labeled BPSK recording only; it is not representative multi-class
+  accuracy. See [the complete report](data/dataset_batches/ml/training_report.json).
+* Focused GPU vectors passed, but the local single-stream Viterbi timing did
+  not beat CPU. The frozen v1 negative suite's two L5 events remain a failed
+  PRD gate until its S6 and full-suite post-mitigation reruns complete.
+* GNU Radio is installed in a separate runtime. Windows execution, representative
+  real-RF evidence, and full ordinary-workflow 1-GB processing remain open.
+
 ## [0.2.0.dev1 / Native Phase 7] - 2026-09-18
 
 ### Added

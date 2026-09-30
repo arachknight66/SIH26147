@@ -85,7 +85,7 @@ def main() -> None:
     ap.add_argument("--output", type=Path, default=Path("data/dataset_batches/ml"))
     ap.add_argument("--per-class", type=int, default=1200)
     ap.add_argument("--seed", type=int, default=26147)
-    ap.add_argument("--real-iq", type=Path, default=Path("data/dataset_batches/indoor-jamming/selected/w1_nojamming_70000000.sigmf-data"))
+    ap.add_argument("--real-iq", type=Path, default=Path("data/dataset_batches/indoor-jamming/selected/w1_nojamming_70000000.iq"))
     args = ap.parse_args()
     if args.per_class < 20:
         ap.error("--per-class must be at least 20")

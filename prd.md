@@ -8,6 +8,14 @@ The application must help users inspect signals, identify plausible modulation a
 
 The existing Python prototype is the starting point. This document defines the target beta, not current implemented capability. Implementation details and phase gates are in [plan.md](plan.md); current evidence is in [progress.md](progress.md).
 
+**Status (2026-09-30):** the native migration is active, but all seven plan
+phases remain in progress. The frozen v1 negative suite recorded two L5
+confirmed-frame claims and therefore failed the PRD's zero-event gate. A
+scoped mitigation has passed focused tests; the frozen S6 and full-suite
+reruns, representative real-RF validation, Windows execution, reference
+hardware performance gates, and complete ordinary-workflow 1-GB run remain
+open. See [known limitations](KNOWN_LIMITATIONS.md) for the current boundaries.
+
 ## Agreed release constraints
 
 | Area | Requirement |

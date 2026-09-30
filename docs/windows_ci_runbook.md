@@ -6,6 +6,11 @@ As of 2026-09-29, Windows execution is **NOT-YET-RUN**. This document is a hando
 
 The repository workflow [`.github/workflows/native.yml`](../.github/workflows/native.yml) is reachable on `windows-latest`: `build-and-test` has `os: [ubuntu-latest, windows-latest]`, no `exclude` entries or job/step `if:` guards, and `fail-fast: false`. Therefore a Windows failure remains visible even if the Ubuntu matrix entry fails.
 
+This workflow validates the native build, selected Python tests, and a GUI
+import. It does **not** install or exercise the separate GNU Radio runtime
+required by ordinary GUI/CLI/Demo analysis jobs, and it does not validate the
+optional CUDA or ML extras.
+
 ## GitHub Actions path
 
 The workflow triggers on `push` and `pull_request` (it has no `workflow_dispatch`). Push the reviewed commit or open/update a pull request, then save the complete **build-and-test (windows-latest, 3.12)** log as `windows-native-YYYY-MM-DD.log`. Include its Actions URL and commit SHA with the transcript.
